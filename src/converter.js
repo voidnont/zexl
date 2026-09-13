@@ -11,14 +11,24 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
         ? format.toLowerCase() 
         : 'mp3';
 
+    const cookiePath = path.resolve(process.cwd(), 'cookies.txt');
+    const hasCookies = fs.existsSync(cookiePath);
+
     const args = [
         '-x',
         '--audio-format', cleanFormat,
         '--audio-quality', quality === '320k' ? '0' : '5',
-        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:player_client=android'
+    ];
+
+    if (hasCookies) {
+        args.push('--cookies', cookiePath);
+    }
+
+    args.push(
         '-o', path.join(outputDir, `${jobId}.%(ext)s`),
         url
-    ];
+    );
 
     const ytdlp = spawn('yt-dlp', args);
     let stderrData = '';
