@@ -9,6 +9,9 @@
     "test": "node --test",
     "check": "node --check src/server.js && node --check src/converter.js && node --check src/validation.js"
   },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
   "engines": {
     "node": ">=20"
   },

@@ -1,76 +1,52 @@
-import { spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
 
-export function buildYtDlpArgs(url, format, outputDir, { cookiesPath = null, userAgent = null } = {}) {
-  const args = [
-    '--no-playlist', '--no-warnings', '--newline', '--extract-audio',
-    '--audio-format', format,
-    '--progress-template', 'download:PROGRESS\t%(progress._percent_str)s',
-    '--print', 'after_move:FILE\t%(filepath)s',
-    '-o', path.join(outputDir, '%(title).180B [%(id)s].%(ext)s')
-  ];
-  if (format === 'mp3') args.push('--audio-quality', '0');
-  if (cookiesPath) args.push('--cookies', cookiesPath);
-  if (userAgent) args.push('--user-agent', userAgent);
-  args.push(url);
-  return args;
-}
+export function processConversion(job, jobId, url, format, quality, outputDir) {
+    job.status = 'processing';
+    job.progress = 20;
+    job.message = 'Extracting and downloading stream...';
 
-export function parseProgressLine(line) {
-  if (line.startsWith('PROGRESS\t')) {
-    const n = Number.parseFloat(line.slice(9).replace('%', '').trim());
-    return Number.isFinite(n) ? { kind: 'progress', value: Math.max(0, Math.min(100, Math.round(n))) } : null;
-  }
-  if (line.startsWith('FILE\t')) return { kind: 'file', value: line.slice(5).trim() };
-  return null;
-}
+    const cleanFormat = ['mp3', 'flac', 'wav'].includes(String(format).toLowerCase()) 
+        ? format.toLowerCase() 
+        : 'mp3';
 
-export function safeDownloadName(title, format) {
-  const base = String(title || 'audio').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim().slice(0, 160) || 'audio';
-  return `${base}.${format}`;
-}
+    const args = [
+        '-x',
+        '--audio-format', cleanFormat,
+        '--audio-quality', quality === '320k' ? '0' : '5',
+        '-o', path.join(outputDir, `${jobId}.%(ext)s`),
+        url
+    ];
 
-export async function convertAudio({ url, format, jobDir, auth = null, ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp', onProgress = () => {} }) {
-  await fs.mkdir(jobDir, { recursive: true });
-  const cookiesPath = auth?.cookies ? path.join(jobDir, '.session.cookies.txt') : null;
+    const ytdlp = spawn('yt-dlp', args);
 
-  if (cookiesPath) {
-    await fs.writeFile(cookiesPath, auth.cookies, { encoding: 'utf8', mode: 0o600 });
-  }
-
-  const args = buildYtDlpArgs(url, format, jobDir, {
-    cookiesPath,
-    userAgent: auth?.userAgent || null
-  });
-
-  try {
-    return await new Promise((resolve, reject) => {
-      const child = spawn(ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-      let stderr = '';
-      let filePath = '';
-      const consume = chunk => {
-        for (const line of chunk.toString().split(/\r?\n/)) {
-          const record = parseProgressLine(line.trim());
-          if (record?.kind === 'progress') onProgress(record.value);
-          if (record?.kind === 'file') filePath = record.value;
+    ytdlp.stdout.on('data', (data) => {
+        const text = data.toString();
+        if (text.includes('%')) {
+            job.progress = 50;
+            job.message = 'Converting media stream...';
         }
-      };
-      child.stdout.on('data', consume);
-      child.stderr.on('data', chunk => { stderr += chunk.toString(); if (stderr.length > 12000) stderr = stderr.slice(-12000); });
-      child.on('error', reject);
-      child.on('close', async code => {
-        if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with ${code}`));
-        if (!filePath) {
-          const files = await fs.readdir(jobDir);
-          const match = files.find(f => f.toLowerCase().endsWith(`.${format}`));
-          if (match) filePath = path.join(jobDir, match);
-        }
-        if (!filePath) return reject(new Error('Conversion completed but no output file was found.'));
-        resolve(filePath);
-      });
     });
-  } finally {
-    if (cookiesPath) await fs.rm(cookiesPath, { force: true }).catch(() => {});
-  }
+
+    ytdlp.on('close', (code) => {
+        if (code === 0) {
+            const files = fs.readdirSync(outputDir);
+            const generatedFile = files.find(f => f.startsWith(jobId));
+            
+            if (generatedFile) {
+                job.status = 'completed';
+                job.progress = 100;
+                job.message = 'Conversion complete';
+                job.downloadUrl = `/files/${generatedFile}`;
+                job.filePath = path.join(outputDir, generatedFile);
+            } else {
+                job.status = 'failed';
+                job.error = 'Output file missing after conversion process';
+            }
+        } else {
+            job.status = 'failed';
+            job.error = `Conversion failed with exit code ${code}`;
+        }
+    });
 }

@@ -1,18 +1,10 @@
-FROM node:22-bookworm-slim
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv ca-certificates \
- && python3 -m venv /opt/yt \
- && /opt/yt/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
- && ln -s /opt/yt/bin/yt-dlp /usr/local/bin/yt-dlp \
- && rm -rf /var/lib/apt/lists/*
-
+FROM node:20-alpine
+RUN apk add --no-cache python3 py3-pip ffmpeg curl bash
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
 WORKDIR /app
-COPY package.json ./
-COPY src ./src
-COPY public ./public
-
-ENV NODE_ENV=production
-ENV PORT=10000
-EXPOSE 10000
-CMD ["node", "src/server.js"]
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
