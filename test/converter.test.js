@@ -82,3 +82,106 @@ console.log('FILE\\t' + output);
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('uses NewPipe-resolved audio before yt-dlp for public links', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-newpipe-convert-'));
+  const ffmpeg = path.join(root, 'fake-ffmpeg.mjs');
+  const jobDir = path.join(root, 'job');
+  await fs.writeFile(ffmpeg, `#!/usr/bin/env node
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+const output = args.at(-1);
+fs.writeFileSync(output, 'audio');
+console.log('out_time_ms=5000000');
+console.log('progress=end');
+`);
+  await fs.chmod(ffmpeg, 0o700);
+  let calls = 0;
+  try {
+    const output = await convertAudio({
+      url: 'https://youtube.com/watch?v=test',
+      format: 'mp3',
+      jobDir,
+      ytDlpPath: path.join(root, 'missing-yt-dlp'),
+      ffmpegPath: ffmpeg,
+      resolveNewPipe: async () => {
+        calls += 1;
+        return {
+          title: 'NewPipe Song',
+          streamUrl: 'https://cdn.example/audio.webm',
+          duration: 10,
+          bitrate: 160000,
+          format: 'WEBMA_OPUS'
+        };
+      }
+    });
+    assert.equal(calls, 1);
+    assert.equal(path.basename(output), 'NewPipe Song.mp3');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('falls back to yt-dlp when NewPipe cannot resolve the link', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-newpipe-fallback-'));
+  const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
+  const jobDir = path.join(root, 'job');
+  await fs.writeFile(fakeYtDlp, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+const valueAfter = key => args[args.indexOf(key) + 1];
+const template = valueAfter('-o');
+const format = valueAfter('--audio-format');
+const output = path.join(path.dirname(template), 'Fallback Song.' + format);
+fs.writeFileSync(output, 'audio');
+console.log('FILE\\t' + output);
+`);
+  await fs.chmod(fakeYtDlp, 0o700);
+  try {
+    const output = await convertAudio({
+      url: 'https://example.com/media',
+      format: 'flac',
+      jobDir,
+      ytDlpPath: fakeYtDlp,
+      resolveNewPipe: async () => null
+    });
+    assert.equal(path.basename(output), 'Fallback Song.flac');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('authenticated jobs skip NewPipe and preserve yt-dlp cookie handling', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-auth-fallback-'));
+  const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
+  const jobDir = path.join(root, 'job');
+  await fs.writeFile(fakeYtDlp, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+const valueAfter = key => args[args.indexOf(key) + 1];
+if (!fs.readFileSync(valueAfter('--cookies'), 'utf8').includes('session\\tsecret')) process.exit(9);
+const template = valueAfter('-o');
+const format = valueAfter('--audio-format');
+const output = path.join(path.dirname(template), 'Private Song.' + format);
+fs.writeFileSync(output, 'audio');
+console.log('FILE\\t' + output);
+`);
+  await fs.chmod(fakeYtDlp, 0o700);
+  let resolverCalled = false;
+  try {
+    const output = await convertAudio({
+      url: 'https://example.com/private',
+      format: 'wav',
+      jobDir,
+      ytDlpPath: fakeYtDlp,
+      resolveNewPipe: async () => { resolverCalled = true; return null; },
+      auth: { cookies: '# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\n' }
+    });
+    assert.equal(resolverCalled, false);
+    assert.equal(path.basename(output), 'Private Song.wav');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,136 +1,188 @@
-import express from 'express';
-import crypto from 'crypto';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { processConversion } from './converter.js';
-import { validateRequest } from './validation.js';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { validateFormat, validateMediaUrl, validateSessionAuth } from './validation.js';
+import { convertAudio, safeDownloadName } from './converter.js';
+import { JobStore } from './jobs.js';
+import { TaskQueue } from './queue.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const publicDir = path.resolve(here, '../public');
+const defaultJobs = new JobStore({ ttlMs: Number(process.env.JOB_TTL_MS || 15 * 60 * 1000) });
+const defaultQueue = new TaskQueue(Number(process.env.MAX_CONCURRENT_JOBS || 1));
 
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const mime = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.flac': 'audio/flac',
+  '.wav': 'audio/wav'
+};
 
-const PORT = process.env.PORT || 3000;
-const OUTPUT_DIR = path.join(__dirname, '../downloads');
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+function json(res, status, value) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store'
+  });
+  res.end(body);
+}
 
-const jobs = new Map();
+function cors(req, res) {
+  const origin = process.env.CORS_ORIGIN || '*';
+  res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type,authorization');
+}
 
-// Interactive Web Dashboard at the root URL
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Zexl Media Converter</title>
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; max-width: 600px; margin: 50px auto; padding: 20px; }
-                .card { background: #1e293b; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-                input, select, button { width: 100%; padding: 12px; margin-top: 10px; margin-bottom: 20px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; }
-                button { background: #3b82f6; border: none; font-weight: bold; cursor: pointer; }
-                button:hover { background: #2563eb; }
-                #status { background: #0f172a; padding: 15px; border-radius: 6px; border: 1px solid #334155; font-family: monospace; min-height: 50px; white-space: pre-wrap; word-break: break-all; }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h2>Zexl Media Converter</h2>
-                <label>Media URL</label>
-                <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=...">
-                
-                <label>Format</label>
-                <select id="format">
-                    <option value="mp3">MP3</option>
-                    <option value="flac">FLAC</option>
-                    <option value="wav">WAV</option>
-                </select>
+function authorized(req) {
+  const expected = process.env.CONVERTER_API_KEY;
+  if (!expected) return true;
+  return req.headers.authorization === `Bearer ${expected}`;
+}
 
-                <button onclick="startConversion()">Convert Media</button>
-                
-                <h3>Status</h3>
-                <div id="status">Idle...</div>
-            </div>
+async function readJson(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 512 * 1024) throw new Error('Request body is too large.');
+    chunks.push(chunk);
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
+  catch { throw new Error('Invalid JSON body.'); }
+}
 
-            <script>
-                async function startConversion() {
-                    const url = document.getElementById('url').value;
-                    const format = document.getElementById('format').value;
-                    const statusDiv = id => document.getElementById('status').innerText = id;
+async function serveStatic(urlPath, res) {
+  const table = {
+    '/': 'index.html',
+    '/index.html': 'index.html',
+    '/app.js': 'app.js',
+    '/style.css': 'style.css',
+    '/favicon.svg': 'favicon.svg'
+  };
+  const file = table[urlPath];
+  if (!file) return false;
+  const full = path.join(publicDir, file);
+  try {
+    const stat = await fsp.stat(full);
+    res.writeHead(200, {
+      'content-type': mime[path.extname(full)] || 'application/octet-stream',
+      'content-length': stat.size,
+      'cache-control': file === 'index.html' ? 'no-cache' : 'public, max-age=3600'
+    });
+    fs.createReadStream(full).pipe(res);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-                    if (!url) { alert('Please enter a URL'); return; }
+function scheduleCleanup(jobDir, store, id) {
+  const ttl = store.ttlMs || 15 * 60 * 1000;
+  const timer = setTimeout(async () => {
+    store.delete(id);
+    await fsp.rm(jobDir, { recursive: true, force: true }).catch(() => {});
+  }, ttl + 1000);
+  timer.unref?.();
+}
 
-                    statusDiv('Submitting job...');
-                    
-                    const res = await fetch('/api/convert', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url, format, quality: '320k' })
-                    });
-                    
-                    const data = await res.json();
-                    if (!data.jobId) {
-                        statusDiv('Error: ' + JSON.stringify(data));
-                        return;
-                    }
+export function createAppServer({
+  validateUrl = validateMediaUrl,
+  convert = convertAudio,
+  jobs = defaultJobs,
+  queue = defaultQueue
+} = {}) {
+  return http.createServer(async (req, res) => {
+    cors(req, res);
+    if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
-                    const jobId = data.jobId;
-                    statusDiv('Job queued. ID: ' + jobId);
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const pathname = requestUrl.pathname;
 
-                    const interval = setInterval(async () => {
-                        const statusRes = await fetch('/api/jobs/' + jobId);
-                        const job = await statusRes.json();
-                        
-                        statusDiv(\`[\${job.status.toUpperCase()}] \${job.progress}% - \${job.message}\`);
+    try {
+      if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true });
 
-                        if (job.status === 'completed') {
-                            clearInterval(interval);
-                            statusDiv(\`Conversion complete!\\nDownload link:\\n\${job.downloadUrl}\`);
-                            window.location.href = job.downloadUrl;
-                        } else if (job.status === 'failed') {
-                            clearInterval(interval);
-                            statusDiv('Conversion failed: ' + job.error);
-                        }
-                    }, 3000);
-                }
-            </script>
-        </body>
-        </html>
-    `);
-});
+      if (pathname.startsWith('/api/') && !authorized(req)) return json(res, 401, { error: 'Unauthorized.' });
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', activeJobs: jobs.size });
-});
+      if (req.method === 'POST' && pathname === '/api/convert') {
+        const body = await readJson(req);
+        const format = validateFormat(body.format);
+        const url = await validateUrl(body.url);
+        let auth = validateSessionAuth(body.auth);
+        const job = jobs.create({ url, format });
+        const jobDir = path.join(os.tmpdir(), 'zexl', job.id);
+        scheduleCleanup(jobDir, jobs, job.id);
 
-app.post('/api/convert', (req, res) => {
-    const validation = validateRequest(req.body);
-    if (!validation.valid) {
-        return res.status(400).json({ error: validation.error });
+        queueMicrotask(() => {
+          queue.add(async () => {
+            try {
+              jobs.update(job.id, { status: 'converting', progress: 1 });
+              const filePath = await convert({
+                url,
+                format,
+                jobDir,
+                auth,
+                onProgress: progress => jobs.update(job.id, { progress })
+              });
+              const ext = path.extname(filePath);
+              const title = path.basename(filePath, ext).replace(/\s+\[[^\]]+\]$/, '');
+              jobs.update(job.id, { status: 'ready', progress: 100, filePath, title });
+            } catch (error) {
+              jobs.update(job.id, {
+                status: 'error',
+                error: String(error?.message || error).slice(0, 1200)
+              });
+            } finally {
+              auth = null;
+            }
+          }).catch(() => {});
+        });
+
+        return json(res, 202, jobs.public(job.id));
+      }
+
+      const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9-]+)$/);
+      if (req.method === 'GET' && jobMatch) {
+        const job = jobs.public(jobMatch[1]);
+        return job ? json(res, 200, job) : json(res, 404, { error: 'Job not found or expired.' });
+      }
+
+      const fileMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9-]+)\/file$/);
+      if (req.method === 'GET' && fileMatch) {
+        const job = jobs.get(fileMatch[1]);
+        if (!job) return json(res, 404, { error: 'Job not found or expired.' });
+        if (job.status !== 'ready' || !job.filePath) return json(res, 409, { error: 'File is not ready yet.' });
+        let stat;
+        try { stat = await fsp.stat(job.filePath); }
+        catch { return json(res, 410, { error: 'Converted file has expired.' }); }
+        const filename = safeDownloadName(job.title, job.format);
+        res.writeHead(200, {
+          'content-type': mime[path.extname(job.filePath).toLowerCase()] || 'application/octet-stream',
+          'content-length': stat.size,
+          'content-disposition': `attachment; filename="${filename.replace(/"/g, '')}"`,
+          'cache-control': 'private, no-store'
+        });
+        return fs.createReadStream(job.filePath).pipe(res);
+      }
+
+      if (req.method === 'GET' && await serveStatic(pathname, res)) return;
+      json(res, 404, { error: 'Not found.' });
+    } catch (error) {
+      json(res, 400, { error: String(error?.message || error) });
     }
+  });
+}
 
-    const { url, format = 'mp3', quality = '320k' } = req.body;
-    const jobId = crypto.randomBytes(8).toString('hex');
-    
-    jobs.set(jobId, { status: 'queued', progress: 0, message: 'Queued for conversion', error: null, filePath: null });
-
-    res.json({ jobId });
-
-    processConversion(jobs.get(jobId), jobId, url, format, quality, OUTPUT_DIR);
-});
-
-app.get('/api/jobs/:jobId', (req, res) => {
-    const job = jobs.get(req.params.jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    res.json(job);
-});
-
-app.use('/files', express.static(OUTPUT_DIR));
-
-app.listen(PORT, () => {
-    console.log(`Zexl conversion service running on port ${PORT}`);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT || 3000);
+  createAppServer().listen(port, '0.0.0.0', () => {
+    console.log(`zexl listening on :${port}`);
+  });
+}

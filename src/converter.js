@@ -1,75 +1,141 @@
-import fs from 'fs';
-import path from 'path';
-import { pipeline } from 'stream/promises';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { buildFfmpegArgs, resolveWithNewPipe } from './newpipe.js';
 
-export async function processConversion(job, jobId, url, format, quality, outputDir) {
-    job.status = 'processing';
-    job.progress = 10;
-    job.message = 'Requesting conversion from Cobalt API...';
+export function buildYtDlpArgs(url, format, outputDir, { cookiesPath = null, userAgent = null } = {}) {
+  const args = [
+    '--no-playlist', '--no-warnings', '--newline', '--extract-audio',
+    '--audio-format', format,
+    '--progress-template', 'download:PROGRESS\t%(progress._percent_str)s',
+    '--print', 'after_move:FILE\t%(filepath)s',
+    '-o', path.join(outputDir, '%(title).180B [%(id)s].%(ext)s')
+  ];
+  if (format === 'mp3') args.push('--audio-quality', '0');
+  if (cookiesPath) args.push('--cookies', cookiesPath);
+  if (userAgent) args.push('--user-agent', userAgent);
+  args.push(url);
+  return args;
+}
 
-    const cleanFormat = ['mp3', 'wav', 'ogg', 'opus'].includes(String(format).toLowerCase()) 
-        ? format.toLowerCase() 
-        : 'mp3';
+export function parseProgressLine(line) {
+  if (line.startsWith('PROGRESS\t')) {
+    const n = Number.parseFloat(line.slice(9).replace('%', '').trim());
+    return Number.isFinite(n) ? { kind: 'progress', value: Math.max(0, Math.min(100, Math.round(n))) } : null;
+  }
+  if (line.startsWith('FILE\t')) return { kind: 'file', value: line.slice(5).trim() };
+  return null;
+}
 
-    try {
-        // 1. Ask Cobalt to process the media
-        const response = await fetch('https://api.cobalt.tools/', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                // Mimic a standard browser to avoid Cobalt's basic bot filters
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-            },
-            body: JSON.stringify({
-                url: url,
-                downloadMode: 'audio',
-                audioFormat: cleanFormat,
-                audioBitrate: quality === '320k' ? '320' : '128',
-                filenameStyle: 'basic'
-            })
-        });
+export function safeDownloadName(title, format) {
+  const base = String(title || 'audio').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim().slice(0, 160) || 'audio';
+  return `${base}.${format}`;
+}
 
-        if (!response.ok) {
-            throw new Error(`Cobalt API error: ${response.status} ${response.statusText}`);
+async function convertResolvedAudio({ resolved, format, jobDir, ffmpegPath, onProgress }) {
+  const outputPath = path.join(jobDir, safeDownloadName(resolved.title, format));
+  const args = buildFfmpegArgs({ streamUrl: resolved.streamUrl, outputPath, format });
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let buffer = '';
+    const duration = Math.max(0, Number(resolved.duration) || 0);
+
+    child.stdout.on('data', chunk => {
+      buffer += chunk.toString();
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const [key, raw = ''] = line.split('=', 2);
+        if ((key === 'out_time_ms' || key === 'out_time_us') && duration > 0) {
+          const micros = Number(raw);
+          if (Number.isFinite(micros)) {
+            const progress = Math.max(1, Math.min(99, Math.round((micros / 1_000_000 / duration) * 100)));
+            onProgress(progress);
+          }
+        } else if (key === 'progress' && raw === 'end') {
+          onProgress(100);
         }
+      }
+    });
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString();
+      if (stderr.length > 12000) stderr = stderr.slice(-12000);
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim() || `ffmpeg exited with ${code}`));
+    });
+  });
 
-        const data = await response.json();
+  return outputPath;
+}
 
-        // Cobalt returns a "status" of "error", "rate-limit", "tunnel", or "redirect"
-        if (data.status === 'error' || data.status === 'rate-limit') {
-            throw new Error(data.text || 'Cobalt API refused the request.');
-        }
+export async function convertAudio({
+  url,
+  format,
+  jobDir,
+  auth = null,
+  ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp',
+  ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg',
+  resolveNewPipe = resolveWithNewPipe,
+  onProgress = () => {}
+}) {
+  await fs.mkdir(jobDir, { recursive: true });
 
-        if (!data.url) {
-            throw new Error('Cobalt API did not return a valid download URL.');
-        }
-
-        job.progress = 50;
-        job.message = 'Downloading converted file from Cobalt servers...';
-
-        // 2. Download the finished audio file from Cobalt's tunnel/redirect URL
-        const downloadRes = await fetch(data.url);
-        if (!downloadRes.ok) {
-            throw new Error(`Failed to download from Cobalt tunnel: ${downloadRes.status}`);
-        }
-
-        const outputFile = path.join(outputDir, `${jobId}.${cleanFormat}`);
-        const fileStream = fs.createWriteStream(outputFile);
-        
-        // Stream the download directly to your Render disk
-        await pipeline(downloadRes.body, fileStream);
-
-        // 3. Complete the job
-        job.status = 'completed';
-        job.progress = 100;
-        job.message = 'Conversion complete';
-        job.downloadUrl = `/files/${jobId}.${cleanFormat}`;
-        job.filePath = outputFile;
-
-    } catch (err) {
-        job.status = 'failed';
-        job.error = err.message;
-        console.error(`Cobalt API error for job ${jobId}:`, err);
+  // NewPipe is preferred for public links. Authenticated jobs go directly to yt-dlp so
+  // user-provided session cookies keep their existing semantics and never enter the JVM bridge.
+  if (!auth?.cookies) {
+    const resolved = await resolveNewPipe(url);
+    if (resolved) {
+      try {
+        return await convertResolvedAudio({ resolved, format, jobDir, ffmpegPath, onProgress });
+      } catch {
+        // Stream URLs can expire or reject a direct FFmpeg request. Fall back to yt-dlp.
+        onProgress(1);
+      }
     }
+  }
+
+  const cookiesPath = auth?.cookies ? path.join(jobDir, '.session.cookies.txt') : null;
+  if (cookiesPath) {
+    await fs.writeFile(cookiesPath, auth.cookies, { encoding: 'utf8', mode: 0o600 });
+  }
+
+  const args = buildYtDlpArgs(url, format, jobDir, {
+    cookiesPath,
+    userAgent: auth?.userAgent || null
+  });
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = spawn(ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      let filePath = '';
+      const consume = chunk => {
+        for (const line of chunk.toString().split(/\r?\n/)) {
+          const record = parseProgressLine(line.trim());
+          if (record?.kind === 'progress') onProgress(record.value);
+          if (record?.kind === 'file') filePath = record.value;
+        }
+      };
+      child.stdout.on('data', consume);
+      child.stderr.on('data', chunk => { stderr += chunk.toString(); if (stderr.length > 12000) stderr = stderr.slice(-12000); });
+      child.on('error', reject);
+      child.on('close', async code => {
+        if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with ${code}`));
+        if (!filePath) {
+          const files = await fs.readdir(jobDir);
+          const match = files.find(f => f.toLowerCase().endsWith(`.${format}`));
+          if (match) filePath = path.join(jobDir, match);
+        }
+        if (!filePath) return reject(new Error('Conversion completed but no output file was found.'));
+        resolve(filePath);
+      });
+    });
+  } finally {
+    if (cookiesPath) await fs.rm(cookiesPath, { force: true }).catch(() => {});
+  }
 }

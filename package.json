@@ -7,14 +7,10 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/converter.js && node --check src/validation.js",
-    "test-api": "node src/test.js"
-  },
-  "dependencies": {
-    "express": "^4.19.2"
+    "check": "node --check src/server.js && node --check src/converter.js && node --check src/newpipe.js && node --check src/validation.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.21.0 <25"
   },
   "author": "void"
 }
