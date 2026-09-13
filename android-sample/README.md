@@ -37,7 +37,7 @@ converter.enqueueDownload(context, job)
 
 ## Build on Windows
 
-From the repository root run `build.bat`. It validates Java + Android SDK Platform 37, bootstraps and SHA-256-verifies Gradle 9.7.1 when necessary, builds the debug APK, and copies it to `dist\zexl-debug.apk`. JDK 21 is recommended; JDK 17+ is accepted.
+From the repository root run `build.bat`. It validates Java and the Android SDK, automatically installs Android SDK Platform 36 + Build Tools 36.0.0 + Platform Tools with `sdkmanager` when needed, bootstraps and SHA-256-verifies Gradle 9.7.1 when necessary, builds the debug APK, and copies it to `dist\zexl-debug.apk`. JDK 21 is recommended; JDK 17+ is accepted. If `sdkmanager` is missing, install **Android SDK Command-Line Tools (latest)** from Android Studio > SDK Manager > SDK Tools, then rerun `build.bat`.
 
 ## Authenticated, non-DRM sources
 
@@ -46,3 +46,7 @@ For media your own account is authorized to access, keep using `SessionAuth` wit
 ## Licensing
 
 The local YouTube route directly depends on TeamNewPipe/NewPipeExtractor, licensed GPL-3.0-or-later. Review and comply with its license obligations before integrating or redistributing this code in another Android app.
+## Build memory
+
+The project includes `gradle.properties` with a 2 GB Gradle heap and two workers. This avoids GC thrashing while compiling Compose + NewPipeExtractor on Gradle 9.7.1.
+

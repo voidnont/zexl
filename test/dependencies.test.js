@@ -37,12 +37,17 @@ test('includes automated dependency update checks', async () => {
 });
 
 
-test('pins current stable Android build and Jetpack dependencies', async () => {
+test('uses AGP 9 built-in Kotlin with a matching Compose compiler', async () => {
   const rootBuild = await fs.readFile(new URL('../android-sample/build.gradle.kts', import.meta.url), 'utf8');
   const appBuild = await fs.readFile(new URL('../android-sample/app/build.gradle.kts', import.meta.url), 'utf8');
-  assert.match(rootBuild, /com\.android\.application\"\) version \"9\.4\.0\"/);
-  assert.match(rootBuild, /org\.jetbrains\.kotlin\.android\"\) version \"2\.4\.20\"/);
+  assert.match(rootBuild, /com\.android\.application"\) version "9\.4\.0"/);
+  assert.match(rootBuild, /kotlin-gradle-plugin:2\.4\.20/);
+  assert.match(rootBuild, /org\.jetbrains\.kotlin\.plugin\.compose"\) version "2\.4\.20"/);
+  assert.doesNotMatch(rootBuild, /org\.jetbrains\.kotlin\.android/);
+  assert.doesNotMatch(appBuild, /org\.jetbrains\.kotlin\.android/);
+  assert.doesNotMatch(appBuild, /kotlinOptions/);
   assert.match(appBuild, /compileSdk = 37/);
+  assert.match(appBuild, /targetSdk = 36/);
   assert.match(appBuild, /compose-bom:2026\.08\.00/);
   assert.match(appBuild, /activity-compose:1\.13\.0/);
   assert.match(appBuild, /lifecycle-runtime-ktx:2\.11\.0/);

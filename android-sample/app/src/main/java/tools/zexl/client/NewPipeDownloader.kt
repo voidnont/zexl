@@ -24,7 +24,7 @@ class NewPipeDownloader : Downloader() {
     internal val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
-        .addInterceptor(CompressionInterceptor(Brotli.INSTANCE, Gzip.INSTANCE))
+        .addInterceptor(CompressionInterceptor(Brotli, Gzip))
         .build()
 
     @Throws(IOException::class, ReCaptchaException::class)

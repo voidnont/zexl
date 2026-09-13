@@ -26,8 +26,8 @@ test('Android NewPipe downloader mirrors Brotli-capable upstream request behavio
   const source = await text(downloader);
   assert.match(source, /class NewPipeDownloader\s*:\s*Downloader/);
   assert.match(source, /CompressionInterceptor/);
-  assert.match(source, /Brotli\.INSTANCE/);
-  assert.match(source, /Gzip\.INSTANCE/);
+  assert.match(source, /CompressionInterceptor\(Brotli, Gzip\)/);
+  assert.doesNotMatch(source, /Brotli\.INSTANCE|Gzip\.INSTANCE/);
   assert.match(source, /request\.headers\(\)/);
   assert.match(source, /request\.dataToSend\(\)/);
   assert.match(source, /Response\(/);
@@ -60,4 +60,11 @@ test('demo UI calls the smart route', async () => {
   const source = await text(main);
   assert.match(source, /client\.convertSmart\(context, url, format/);
   assert.match(source, /downloading locally|resolving locally/);
+});
+
+
+test('Compose weight uses RowScope member extension instead of obsolete top-level import', async () => {
+  const source = await text(main);
+  assert.doesNotMatch(source, /import androidx\.compose\.foundation\.layout\.weight/);
+  assert.match(source, /Modifier\.weight\(1f\)/);
 });
