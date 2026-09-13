@@ -1,108 +1,75 @@
-import { spawn } from 'child_process';
-import path from 'path';
 import fs from 'fs';
-
-// Helper to extract the 11-character YouTube Video ID
-function extractVideoId(url) {
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/))([0-9A-Za-z_-]{11})/);
-    return match ? match[1] : null;
-}
-
-// A list of public Piped API instances
-const PIPED_INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://pipedapi.tokhmi.xyz',
-    'https://pipedapi.syncpundit.io',
-    'https://pipedapi.adminforge.de',
-    'https://api.piped.privacydev.net'
-];
-
-async function fetchStreamFromPiped(videoId) {
-    for (const baseUrl of PIPED_INSTANCES) {
-        try {
-            console.log(`Trying Piped API: ${baseUrl}`);
-            const res = await fetch(`${baseUrl}/streams/${videoId}`);
-            
-            if (res.ok) {
-                const data = await res.json();
-                if (data.audioStreams && data.audioStreams.length > 0) {
-                    return data.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0].url;
-                }
-            }
-        } catch (err) {
-            console.log(`Failed to reach ${baseUrl}, trying next...`);
-        }
-    }
-    throw new Error('All public Piped instances failed to return a valid stream.');
-}
+import path from 'path';
+import { pipeline } from 'stream/promises';
 
 export async function processConversion(job, jobId, url, format, quality, outputDir) {
     job.status = 'processing';
     job.progress = 10;
-    job.message = 'Fetching stream metadata from Piped API...';
+    job.message = 'Requesting conversion from Cobalt API...';
 
-    const videoId = extractVideoId(url);
-    if (!videoId) {
-        job.status = 'failed';
-        job.error = 'Invalid YouTube URL provided.';
-        return;
-    }
+    const cleanFormat = ['mp3', 'wav', 'ogg', 'opus'].includes(String(format).toLowerCase()) 
+        ? format.toLowerCase() 
+        : 'mp3';
 
     try {
-        const streamUrl = await fetchStreamFromPiped(videoId);
+        // 1. Ask Cobalt to process the media
+        const response = await fetch('https://api.cobalt.tools/', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                // Mimic a standard browser to avoid Cobalt's basic bot filters
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            },
+            body: JSON.stringify({
+                url: url,
+                downloadMode: 'audio',
+                audioFormat: cleanFormat,
+                audioBitrate: quality === '320k' ? '320' : '128',
+                filenameStyle: 'basic'
+            })
+        });
 
-        job.progress = 30;
-        job.message = 'Downloading and converting stream...';
-
-        const cleanFormat = ['mp3', 'flac', 'wav'].includes(String(format).toLowerCase()) 
-            ? format.toLowerCase() 
-            : 'mp3';
-
-        const outputFile = path.join(outputDir, `${jobId}.${cleanFormat}`);
-        
-        const args = [
-            '-i', streamUrl,
-            '-vn',
-        ];
-
-        if (cleanFormat === 'mp3') {
-            args.push('-q:a', quality === '320k' ? '0' : '5');
-        } else if (cleanFormat === 'flac') {
-            args.push('-compression_level', '5');
+        if (!response.ok) {
+            throw new Error(`Cobalt API error: ${response.status} ${response.statusText}`);
         }
 
-        args.push('-y', outputFile); 
+        const data = await response.json();
 
-        const ffmpegProcess = spawn('ffmpeg', args);
-        let stderrData = '';
+        // Cobalt returns a "status" of "error", "rate-limit", "tunnel", or "redirect"
+        if (data.status === 'error' || data.status === 'rate-limit') {
+            throw new Error(data.text || 'Cobalt API refused the request.');
+        }
 
-        ffmpegProcess.stderr.on('data', (data) => {
-            const text = data.toString();
-            stderrData += text;
-            if (text.includes('time=')) {
-                job.progress = 60;
-                job.message = 'Converting media format...';
-            }
-        });
+        if (!data.url) {
+            throw new Error('Cobalt API did not return a valid download URL.');
+        }
 
-        ffmpegProcess.on('close', (code) => {
-            if (code === 0 && fs.existsSync(outputFile)) {
-                job.status = 'completed';
-                job.progress = 100;
-                job.message = 'Conversion complete';
-                job.downloadUrl = `/files/${jobId}.${cleanFormat}`;
-                job.filePath = outputFile;
-            } else {
-                job.status = 'failed';
-                const cleanErr = stderrData.trim().split('\n').pop() || `Exit code ${code}`;
-                job.error = `FFmpeg error: ${cleanErr}`;
-                console.error(`FFmpeg error for job ${jobId}:`, stderrData);
-            }
-        });
+        job.progress = 50;
+        job.message = 'Downloading converted file from Cobalt servers...';
+
+        // 2. Download the finished audio file from Cobalt's tunnel/redirect URL
+        const downloadRes = await fetch(data.url);
+        if (!downloadRes.ok) {
+            throw new Error(`Failed to download from Cobalt tunnel: ${downloadRes.status}`);
+        }
+
+        const outputFile = path.join(outputDir, `${jobId}.${cleanFormat}`);
+        const fileStream = fs.createWriteStream(outputFile);
+        
+        // Stream the download directly to your Render disk
+        await pipeline(downloadRes.body, fileStream);
+
+        // 3. Complete the job
+        job.status = 'completed';
+        job.progress = 100;
+        job.message = 'Conversion complete';
+        job.downloadUrl = `/files/${jobId}.${cleanFormat}`;
+        job.filePath = outputFile;
 
     } catch (err) {
         job.status = 'failed';
         job.error = err.message;
-        console.error(`Piped API error for job ${jobId}:`, err);
+        console.error(`Cobalt API error for job ${jobId}:`, err);
     }
 }
