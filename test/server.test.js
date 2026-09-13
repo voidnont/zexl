@@ -42,3 +42,47 @@ test('missing jobs return 404', async () => {
     assert.equal(res.status, 404);
   });
 });
+
+test('passes validated session auth to the converter without exposing it in job JSON', async () => {
+  let capturedAuth;
+  const server = createAppServer({
+    validateUrl: async url => url,
+    convert: async ({ auth, jobDir }) => {
+      capturedAuth = auth;
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      await fs.mkdir(jobDir, { recursive: true });
+      const file = path.join(jobDir, 'song.mp3');
+      await fs.writeFile(file, 'audio');
+      return file;
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const base = `http://127.0.0.1:${port}`;
+    const res = await fetch(`${base}/api/convert`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://example.com/private',
+        format: 'mp3',
+        auth: {
+          cookies: '# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\n',
+          userAgent: 'Mozilla/5.0 Test'
+        }
+      })
+    });
+    assert.equal(res.status, 202);
+    const created = await res.json();
+    assert.equal(JSON.stringify(created).includes('secret'), false);
+
+    for (let i = 0; i < 30 && !capturedAuth; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(capturedAuth.cookies.includes('\tsession\tsecret'), true);
+    assert.equal(capturedAuth.userAgent, 'Mozilla/5.0 Test');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});

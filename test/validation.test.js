@@ -32,3 +32,21 @@ test('recognizes common private and local ip ranges', () => {
   assert.equal(isPrivateIp('8.8.8.8'), false);
   assert.equal(isPrivateIp('2606:4700:4700::1111'), false);
 });
+
+test('accepts optional Netscape cookie sessions and normalizes newlines', async () => {
+  const { validateSessionAuth } = await import('../src/validation.js');
+  const auth = validateSessionAuth({
+    cookies: '# Netscape HTTP Cookie File\r\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\r\n',
+    userAgent: 'Mozilla/5.0 ZEXL Test'
+  });
+  assert.equal(auth.cookies, '# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\n');
+  assert.equal(auth.userAgent, 'Mozilla/5.0 ZEXL Test');
+  assert.equal(validateSessionAuth(null), null);
+});
+
+test('rejects malformed or oversized authentication input', async () => {
+  const { validateSessionAuth } = await import('../src/validation.js');
+  assert.throws(() => validateSessionAuth({ cookies: 'session=secret' }), /netscape|cookie/i);
+  assert.throws(() => validateSessionAuth({ cookies: '# Netscape HTTP Cookie File\n', userAgent: 'x'.repeat(513) }), /user.agent/i);
+  assert.throws(() => validateSessionAuth({ cookies: '# Netscape HTTP Cookie File\n' + 'x'.repeat(256 * 1024 + 1) }), /cookie/i);
+});

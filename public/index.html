@@ -3,42 +3,103 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b0b0d">
-  <title>ZEXL</title>
+  <meta name="theme-color" content="#07080a">
+  <meta name="color-scheme" content="dark">
+  <title>ZEXL — link to audio</title>
   <link rel="icon" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <div class="ambient" aria-hidden="true">
+    <span class="orb orb-a"></span>
+    <span class="orb orb-b"></span>
+    <span class="orb orb-c"></span>
+    <span class="grain"></span>
+  </div>
+
   <main class="shell">
-    <section class="card" aria-labelledby="title">
-      <div class="brand"><span class="dot"></span> ZEXL</div>
-      <h1 id="title">drop a link.<br><span>get audio.</span></h1>
-      <p class="sub">Convert supported public media links to MP3, FLAC, or WAV.</p>
+    <section class="glass-card card" id="glass-card" aria-labelledby="title">
+      <div class="glass-shine" aria-hidden="true"></div>
+
+      <header class="topline">
+        <div class="brand"><span class="brand-mark"><span></span></span><strong>ZEXL</strong></div>
+        <span class="live-pill"><i></i> audio converter</span>
+      </header>
+
+      <div class="hero-copy">
+        <p class="eyebrow">one link. three formats.</p>
+        <h1 id="title">drop a link.<br><span>keep the sound.</span></h1>
+        <p class="sub">Turn supported media into MP3, FLAC, or WAV with a minimal hosted converter. Public links work instantly; your own authorized session is optional.</p>
+      </div>
 
       <form id="convert-form">
-        <label class="urlbox">
-          <span>media link</span>
-          <input id="url" type="url" inputmode="url" autocomplete="url" placeholder="https://…" required>
+        <label class="glass-input urlbox">
+          <span class="field-label">media link</span>
+          <span class="input-row">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 13.4a2 2 0 0 0 2.8 0l3.6-3.6a2 2 0 0 0-2.8-2.8l-1 1m.2 8.2-1 1a2 2 0 1 1-2.8-2.8l3.6-3.6"/></svg>
+            <input id="url" type="url" inputmode="url" autocomplete="url" placeholder="https://…" required>
+            <span class="paste-hint">paste</span>
+          </span>
         </label>
 
+        <div class="format-heading"><span>output format</span><small>choose one</small></div>
         <div class="formats" role="radiogroup" aria-label="Audio format">
-          <label><input type="radio" name="format" value="mp3" checked><span>MP3</span></label>
-          <label><input type="radio" name="format" value="flac"><span>FLAC</span></label>
-          <label><input type="radio" name="format" value="wav"><span>WAV</span></label>
+          <label class="format-option">
+            <input type="radio" name="format" value="mp3" checked>
+            <span class="format-glass"><b>MP3</b><small>compact</small><i>320k</i></span>
+          </label>
+          <label class="format-option">
+            <input type="radio" name="format" value="flac">
+            <span class="format-glass"><b>FLAC</b><small>lossless</small><i>best</i></span>
+          </label>
+          <label class="format-option">
+            <input type="radio" name="format" value="wav">
+            <span class="format-glass"><b>WAV</b><small>raw audio</small><i>PCM</i></span>
+          </label>
         </div>
 
-        <button id="convert" type="submit">convert</button>
+        <details class="session glass-panel">
+          <summary>
+            <span class="summary-main"><span class="lock-icon">⌁</span> authenticated source</span>
+            <span class="optional">optional <i>+</i></span>
+          </summary>
+          <div class="session-body">
+            <p>For media your account is already allowed to access, attach a Netscape-format <code>cookies.txt</code>. ZEXL uses it only for this job and removes the temporary server copy afterward.</p>
+            <label class="filebox">
+              <span>cookies.txt</span>
+              <input id="cookies" type="file" accept=".txt,text/plain">
+            </label>
+            <label class="glass-input compact">
+              <span class="field-label">matching browser user-agent</span>
+              <input id="user-agent" type="text" autocomplete="off" placeholder="uses this browser if left blank">
+            </label>
+          </div>
+        </details>
+
+        <button id="convert" class="convert-button" type="submit">
+          <span class="button-label">convert audio</span>
+          <span class="button-state" aria-hidden="true"><i></i><i></i><i></i></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+        </button>
       </form>
 
-      <section id="status" class="status" hidden aria-live="polite">
-        <div class="status-row"><strong id="status-title">starting…</strong><span id="percent">0%</span></div>
-        <div class="track"><div id="bar"></div></div>
+      <section id="status" class="status glass-panel" hidden aria-live="polite" data-state="idle">
+        <div class="status-head">
+          <div><small>conversion</small><strong id="status-title">starting…</strong></div>
+          <span id="percent">0%</span>
+        </div>
+        <div class="track"><div id="bar"><span></span></div></div>
         <p id="status-message">Waking converter and preparing your job.</p>
-        <a id="download" class="download" hidden>download audio</a>
+        <a id="download" class="download" hidden>
+          <span>download audio</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+        </a>
       </section>
 
-      <p class="fine">Use only media you have permission to download. DRM/login-protected sources are not bypassed.</p>
-      <p class="signature">signed by void</p>
+      <footer>
+        <p class="fine">Use only media you have permission to download. ZEXL supports authorized sessions for compatible non-DRM sources; it does not defeat DRM, paywalls, or access controls.</p>
+        <p class="signature"><span></span> signed by void</p>
+      </footer>
     </section>
   </main>
   <script src="/app.js" defer></script>

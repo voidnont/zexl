@@ -6,15 +6,23 @@ const percent = document.querySelector('#percent');
 const bar = document.querySelector('#bar');
 const message = document.querySelector('#status-message');
 const download = document.querySelector('#download');
+const glassCard = document.querySelector('#glass-card');
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-function setStatus(label, progress, text) {
+function setStatus(label, progress, text, state = 'working') {
   statusBox.hidden = false;
+  statusBox.dataset.state = state;
   title.textContent = label;
-  percent.textContent = `${progress}%`;
-  bar.style.width = `${progress}%`;
+  percent.textContent = `${Math.max(0, Math.min(100, progress))}%`;
+  bar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
   message.textContent = text;
+}
+
+function setBusy(busy) {
+  button.disabled = busy;
+  button.dataset.state = busy ? 'busy' : 'idle';
 }
 
 async function jsonRequest(url, options) {
@@ -24,39 +32,80 @@ async function jsonRequest(url, options) {
   return data;
 }
 
+if (glassCard && !prefersReducedMotion && matchMedia('(pointer:fine)').matches) {
+  glassCard.addEventListener('pointermove', event => {
+    const rect = glassCard.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    glassCard.style.setProperty('--mx', `${x * 100}%`);
+    glassCard.style.setProperty('--my', `${y * 100}%`);
+    glassCard.style.setProperty('--rx', `${(0.5 - y) * 1.35}deg`);
+    glassCard.style.setProperty('--ry', `${(x - 0.5) * 1.35}deg`);
+  });
+  glassCard.addEventListener('pointerleave', () => {
+    glassCard.style.setProperty('--mx', '50%');
+    glassCard.style.setProperty('--my', '10%');
+    glassCard.style.setProperty('--rx', '0deg');
+    glassCard.style.setProperty('--ry', '0deg');
+  });
+}
+
+document.querySelectorAll('input[name="format"]').forEach(input => {
+  input.addEventListener('change', () => {
+    if (navigator.vibrate) navigator.vibrate(8);
+  });
+});
+
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  button.disabled = true;
+  setBusy(true);
   download.hidden = true;
   download.removeAttribute('href');
   const url = document.querySelector('#url').value.trim();
   const format = new FormData(form).get('format');
 
   try {
-    setStatus('connecting', 0, 'Contacting the converter…');
+    setStatus('connecting', 0, 'Waking the hosted converter…');
     await jsonRequest('/health');
-    setStatus('queued', 1, 'Creating conversion job…');
+    setStatus('queued', 2, 'Creating your conversion job…');
+
+    const payload = { url, format };
+    const cookieFile = document.querySelector('#cookies').files[0];
+    if (cookieFile) {
+      if (cookieFile.size > 256 * 1024) throw new Error('cookies.txt is too large (256 KB max).');
+      const cookies = await cookieFile.text();
+      payload.auth = {
+        cookies,
+        userAgent: document.querySelector('#user-agent').value.trim() || navigator.userAgent
+      };
+    }
+
     let job = await jsonRequest('/api/convert', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url, format })
+      body: JSON.stringify(payload)
     });
 
     while (!['ready', 'error'].includes(job.status)) {
-      const p = Number(job.progress || 1);
-      setStatus('converting', p, 'Downloading the source audio and converting it…');
-      await sleep(1000);
+      const progress = Math.max(2, Number(job.progress || 2));
+      const label = job.status === 'queued' ? 'in queue' : 'converting';
+      const copy = job.status === 'queued'
+        ? 'Waiting for the converter slot…'
+        : 'Extracting the source audio and shaping your file…';
+      setStatus(label, progress, copy);
+      await sleep(900);
       job = await jsonRequest(`/api/jobs/${job.id}`);
     }
 
     if (job.status === 'error') throw new Error(job.error || 'Conversion failed.');
-    setStatus(job.title || 'ready', 100, `Your ${String(format).toUpperCase()} file is ready.`);
+    setStatus(job.title || 'ready', 100, `Your ${String(format).toUpperCase()} file is ready.`, 'ready');
     download.href = job.downloadUrl;
-    download.textContent = `download ${String(format).toUpperCase()}`;
+    download.querySelector('span').textContent = `download ${String(format).toUpperCase()}`;
     download.hidden = false;
+    if (navigator.vibrate) navigator.vibrate([18, 24, 30]);
   } catch (error) {
-    setStatus('couldn’t convert', 0, error.message || String(error));
+    setStatus('couldn’t convert', 0, error.message || String(error), 'error');
   } finally {
-    button.disabled = false;
+    setBusy(false);
   }
 });

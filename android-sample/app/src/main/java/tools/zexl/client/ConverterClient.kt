@@ -15,6 +15,11 @@ import java.util.Locale
 
 enum class AudioFormat { MP3, FLAC, WAV }
 
+data class SessionAuth(
+    val cookies: String,
+    val userAgent: String? = null
+)
+
 data class ConversionJob(
     val id: String,
     val format: String,
@@ -45,12 +50,20 @@ class ConverterClient(
         throw IOException("Converter could not wake up", lastError)
     }
 
-    suspend fun startConversion(url: String, format: AudioFormat): ConversionJob = withContext(Dispatchers.IO) {
+    suspend fun startConversion(
+        url: String,
+        format: AudioFormat,
+        auth: SessionAuth? = null
+    ): ConversionJob = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("url", url)
             .put("format", format.name.lowercase(Locale.US))
-            .toString()
-        parseJob(request("/api/convert", "POST", body))
+        auth?.let { session ->
+            body.put("auth", JSONObject()
+                .put("cookies", session.cookies)
+                .put("userAgent", session.userAgent))
+        }
+        parseJob(request("/api/convert", "POST", body.toString()))
     }
 
     suspend fun getJob(id: String): ConversionJob = withContext(Dispatchers.IO) {
@@ -61,10 +74,11 @@ class ConverterClient(
         url: String,
         format: AudioFormat,
         pollMs: Long = 1000,
+        auth: SessionAuth? = null,
         onUpdate: (ConversionJob) -> Unit = {}
     ): ConversionJob {
         warmUp()
-        var job = startConversion(url, format)
+        var job = startConversion(url, format, auth)
         onUpdate(job)
         while (job.status != "ready" && job.status != "error") {
             delay(pollMs)

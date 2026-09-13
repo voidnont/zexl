@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { validateFormat, validateMediaUrl } from './validation.js';
+import { validateFormat, validateMediaUrl, validateSessionAuth } from './validation.js';
 import { convertAudio, safeDownloadName } from './converter.js';
 import { JobStore } from './jobs.js';
 import { TaskQueue } from './queue.js';
@@ -52,7 +52,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 32 * 1024) throw new Error('Request body is too large.');
+    if (size > 512 * 1024) throw new Error('Request body is too large.');
     chunks.push(chunk);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
@@ -115,6 +115,7 @@ export function createAppServer({
         const body = await readJson(req);
         const format = validateFormat(body.format);
         const url = await validateUrl(body.url);
+        let auth = validateSessionAuth(body.auth);
         const job = jobs.create({ url, format });
         const jobDir = path.join(os.tmpdir(), 'zexl', job.id);
         scheduleCleanup(jobDir, jobs, job.id);
@@ -127,6 +128,7 @@ export function createAppServer({
                 url,
                 format,
                 jobDir,
+                auth,
                 onProgress: progress => jobs.update(job.id, { progress })
               });
               const ext = path.extname(filePath);
@@ -137,6 +139,8 @@ export function createAppServer({
                 status: 'error',
                 error: String(error?.message || error).slice(0, 1200)
               });
+            } finally {
+              auth = null;
             }
           }).catch(() => {});
         });

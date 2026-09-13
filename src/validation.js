@@ -18,6 +18,30 @@ export function isPrivateIp(ip) {
   return false;
 }
 
+
+export function validateSessionAuth(input) {
+  if (input == null) return null;
+  if (typeof input !== 'object' || Array.isArray(input)) throw new Error('Authentication must be an object.');
+
+  const rawCookies = String(input.cookies || '');
+  if (!rawCookies) throw new Error('A Netscape cookies file is required for authenticated sources.');
+  if (Buffer.byteLength(rawCookies, 'utf8') > 256 * 1024) throw new Error('Cookie file is too large.');
+
+  const cookies = rawCookies.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const firstLine = cookies.split('\n', 1)[0].trim();
+  if (!['# Netscape HTTP Cookie File', '# HTTP Cookie File'].includes(firstLine)) {
+    throw new Error('Cookies must use Netscape cookies.txt format.');
+  }
+
+  const rawUserAgent = input.userAgent == null ? '' : String(input.userAgent).trim();
+  if (rawUserAgent.length > 512) throw new Error('User-Agent is too long.');
+
+  return {
+    cookies: cookies.endsWith('\n') ? cookies : `${cookies}\n`,
+    userAgent: rawUserAgent || null
+  };
+}
+
 export async function validateMediaUrl(input, lookup = async (host) => dns.lookup(host, { all: true })) {
   let url;
   try { url = new URL(String(input || '')); } catch { throw new Error('Invalid URL.'); }
