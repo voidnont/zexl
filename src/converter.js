@@ -8,6 +8,34 @@ function extractVideoId(url) {
     return match ? match[1] : null;
 }
 
+// A list of public Piped API instances
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.tokhmi.xyz',
+    'https://pipedapi.syncpundit.io',
+    'https://pipedapi.adminforge.de',
+    'https://api.piped.privacydev.net'
+];
+
+async function fetchStreamFromPiped(videoId) {
+    for (const baseUrl of PIPED_INSTANCES) {
+        try {
+            console.log(`Trying Piped API: ${baseUrl}`);
+            const res = await fetch(`${baseUrl}/streams/${videoId}`);
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data.audioStreams && data.audioStreams.length > 0) {
+                    return data.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0].url;
+                }
+            }
+        } catch (err) {
+            console.log(`Failed to reach ${baseUrl}, trying next...`);
+        }
+    }
+    throw new Error('All public Piped instances failed to return a valid stream.');
+}
+
 export async function processConversion(job, jobId, url, format, quality, outputDir) {
     job.status = 'processing';
     job.progress = 10;
@@ -21,23 +49,7 @@ export async function processConversion(job, jobId, url, format, quality, output
     }
 
     try {
-        // Querying the official Piped instance API
-        const pipedApiUrl = `https://pipedapi.kavin.rocks/streams/${videoId}`;
-        const res = await fetch(pipedApiUrl);
-        
-        if (!res.ok) {
-            throw new Error(`Piped API returned ${res.status} ${res.statusText}`);
-        }
-        
-        const data = await res.json();
-        
-        if (!data.audioStreams || data.audioStreams.length === 0) {
-            throw new Error('No audio streams found for this video via Piped.');
-        }
-
-        // Pick the highest bitrate audio stream provided by NewPipeExtractor
-        const bestAudio = data.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0];
-        const streamUrl = bestAudio.url;
+        const streamUrl = await fetchStreamFromPiped(videoId);
 
         job.progress = 30;
         job.message = 'Downloading and converting stream...';
@@ -48,10 +60,9 @@ export async function processConversion(job, jobId, url, format, quality, output
 
         const outputFile = path.join(outputDir, `${jobId}.${cleanFormat}`);
         
-        // Feed the direct Piped stream URL directly into FFmpeg
         const args = [
-            '-i', streamUrl, // Input direct URL
-            '-vn',           // Strip any video data just in case
+            '-i', streamUrl,
+            '-vn',
         ];
 
         if (cleanFormat === 'mp3') {
@@ -68,8 +79,6 @@ export async function processConversion(job, jobId, url, format, quality, output
         ffmpegProcess.stderr.on('data', (data) => {
             const text = data.toString();
             stderrData += text;
-            
-            // Basic FFmpeg progress sniffing
             if (text.includes('time=')) {
                 job.progress = 60;
                 job.message = 'Converting media format...';
