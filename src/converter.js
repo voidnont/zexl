@@ -73,6 +73,55 @@ async function convertResolvedAudio({ resolved, format, jobDir, ffmpegPath, onPr
   return outputPath;
 }
 
+
+
+export async function transcodeUploadedAudio({
+  inputPath,
+  title = 'audio',
+  format,
+  jobDir,
+  ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg',
+  onProgress = () => {}
+}) {
+  await fs.mkdir(jobDir, { recursive: true });
+  const outputPath = path.join(jobDir, safeDownloadName(title, format));
+  const codecArgs = format === 'mp3'
+    ? ['-c:a', 'libmp3lame', '-q:a', '0']
+    : format === 'flac'
+      ? ['-c:a', 'flac']
+      : ['-c:a', 'pcm_s16le'];
+  const args = [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', inputPath,
+    '-vn',
+    ...codecArgs,
+    '-progress', 'pipe:1', '-nostats',
+    outputPath
+  ];
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let stdout = '';
+    child.stdout.on('data', chunk => {
+      stdout += chunk.toString();
+      if (stdout.includes('progress=end')) onProgress(100);
+      if (stdout.length > 12000) stdout = stdout.slice(-12000);
+    });
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString();
+      if (stderr.length > 12000) stderr = stderr.slice(-12000);
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim() || `ffmpeg exited with ${code}`));
+    });
+  });
+
+  return outputPath;
+}
+
 export async function convertAudio({
   url,
   format,

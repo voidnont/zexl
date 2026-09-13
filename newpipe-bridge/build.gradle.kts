@@ -12,7 +12,7 @@ java {
 }
 
 dependencies {
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:13a655fe53e0c3065f88725fc1fb594c3ede0169")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:8584a0d636ce6b8371d2c5c83dbe7f01a3d21d59")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("com.squareup.okhttp3:okhttp-brotli:5.5.0")
 }

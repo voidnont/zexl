@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildYtDlpArgs, convertAudio, parseProgressLine, safeDownloadName } from '../src/converter.js';
+import { buildYtDlpArgs, convertAudio, parseProgressLine, safeDownloadName, transcodeUploadedAudio } from '../src/converter.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -182,6 +182,40 @@ console.log('FILE\\t' + output);
     });
     assert.equal(resolverCalled, false);
     assert.equal(path.basename(output), 'Private Song.wav');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('transcodes an uploaded local source file with ffmpeg', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-upload-transcode-'));
+  const ffmpeg = path.join(root, 'fake-ffmpeg.mjs');
+  const input = path.join(root, 'source.webm');
+  const jobDir = path.join(root, 'job');
+  await fs.writeFile(input, 'source-audio');
+  await fs.writeFile(ffmpeg, `#!/usr/bin/env node
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+const inputIndex = args.indexOf('-i');
+if (inputIndex < 0 || args[inputIndex + 1] !== ${JSON.stringify(input)}) process.exit(31);
+if (!args.includes('-vn')) process.exit(32);
+const output = args.at(-1);
+fs.mkdirSync(new URL('.', 'file://' + output).pathname, { recursive: true });
+fs.writeFileSync(output, 'converted');
+console.log('progress=end');
+`);
+  await fs.chmod(ffmpeg, 0o700);
+  try {
+    const output = await transcodeUploadedAudio({
+      inputPath: input,
+      title: 'Local YouTube Song',
+      format: 'flac',
+      jobDir,
+      ffmpegPath: ffmpeg
+    });
+    assert.equal(path.basename(output), 'Local YouTube Song.flac');
+    assert.equal(await fs.readFile(output, 'utf8'), 'converted');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

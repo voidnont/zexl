@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { validateFormat, validateMediaUrl, validateSessionAuth } from './validation.js';
-import { convertAudio, safeDownloadName } from './converter.js';
+import { convertAudio, safeDownloadName, transcodeUploadedAudio } from './converter.js';
 import { JobStore } from './jobs.js';
 import { TaskQueue } from './queue.js';
 
@@ -59,6 +59,44 @@ async function readJson(req) {
   catch { throw new Error('Invalid JSON body.'); }
 }
 
+
+async function streamRequestToFile(req, filePath, maxBytes) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  const declared = Number(req.headers['content-length'] || 0);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    const error = new Error('Upload is too large.');
+    error.statusCode = 413;
+    throw error;
+  }
+
+  const handle = await fsp.open(filePath, 'w', 0o600);
+  let size = 0;
+  let tooLarge = false;
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        tooLarge = true;
+        continue;
+      }
+      await handle.write(chunk);
+    }
+  } finally {
+    await handle.close();
+  }
+  if (tooLarge) {
+    await fsp.rm(filePath, { force: true }).catch(() => {});
+    const error = new Error('Upload is too large.');
+    error.statusCode = 413;
+    throw error;
+  }
+  if (size === 0) {
+    await fsp.rm(filePath, { force: true }).catch(() => {});
+    throw new Error('Uploaded audio is empty.');
+  }
+  return size;
+}
+
 async function serveStatic(urlPath, res) {
   const table = {
     '/': 'index.html',
@@ -96,8 +134,10 @@ function scheduleCleanup(jobDir, store, id) {
 export function createAppServer({
   validateUrl = validateMediaUrl,
   convert = convertAudio,
+  transcode = transcodeUploadedAudio,
   jobs = defaultJobs,
-  queue = defaultQueue
+  queue = defaultQueue,
+  maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES || 250 * 1024 * 1024)
 } = {}) {
   return http.createServer(async (req, res) => {
     cors(req, res);
@@ -110,6 +150,45 @@ export function createAppServer({
       if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true });
 
       if (pathname.startsWith('/api/') && !authorized(req)) return json(res, 401, { error: 'Unauthorized.' });
+
+      if (req.method === 'POST' && pathname === '/api/transcode') {
+        const format = validateFormat(requestUrl.searchParams.get('format'));
+        const title = String(requestUrl.searchParams.get('title') || 'audio').trim().slice(0, 180) || 'audio';
+        const job = jobs.create({ url: null, format });
+        const jobDir = path.join(os.tmpdir(), 'zexl', job.id);
+        const inputPath = path.join(jobDir, '.source-upload');
+        try {
+          await streamRequestToFile(req, inputPath, maxUploadBytes);
+        } catch (error) {
+          jobs.delete(job.id);
+          await fsp.rm(jobDir, { recursive: true, force: true }).catch(() => {});
+          throw error;
+        }
+        scheduleCleanup(jobDir, jobs, job.id);
+
+        queueMicrotask(() => {
+          queue.add(async () => {
+            try {
+              jobs.update(job.id, { status: 'converting', progress: 1 });
+              const filePath = await transcode({
+                inputPath,
+                title,
+                format,
+                jobDir,
+                onProgress: progress => jobs.update(job.id, { progress })
+              });
+              jobs.update(job.id, { status: 'ready', progress: 100, filePath, title });
+            } catch (error) {
+              jobs.update(job.id, {
+                status: 'error',
+                error: String(error?.message || error).slice(0, 1200)
+              });
+            }
+          }).catch(() => {});
+        });
+
+        return json(res, 202, jobs.public(job.id));
+      }
 
       if (req.method === 'POST' && pathname === '/api/convert') {
         const body = await readJson(req);
@@ -175,7 +254,8 @@ export function createAppServer({
       if (req.method === 'GET' && await serveStatic(pathname, res)) return;
       json(res, 404, { error: 'Not found.' });
     } catch (error) {
-      json(res, 400, { error: String(error?.message || error) });
+      const status = Number(error?.statusCode) || 400;
+      json(res, status, { error: String(error?.message || error) });
     }
   });
 }

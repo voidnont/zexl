@@ -24,7 +24,7 @@ test('pins current stable runtime and extractor dependencies', async () => {
   assert.match(docker, /gradle:9\.7\.1-jdk21/);
   assert.match(docker, /YTDLP_VERSION=2026\.08\.19/);
   assert.match(docker, /yt-dlp\[default\]==\$\{YTDLP_VERSION\}/);
-  assert.match(gradle, /NewPipeExtractor:13a655fe53e0c3065f88725fc1fb594c3ede0169/);
+  assert.match(gradle, /NewPipeExtractor:8584a0d636ce6b8371d2c5c83dbe7f01a3d21d59/);
   assert.match(gradle, /com\.squareup\.okhttp3:okhttp:5\.5\.0/);
   assert.match(gradle, /com\.squareup\.okhttp3:okhttp-brotli:5\.5\.0/);
 });

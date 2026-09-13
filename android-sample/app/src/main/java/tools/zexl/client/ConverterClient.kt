@@ -5,12 +5,17 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 enum class AudioFormat { MP3, FLAC, WAV }
@@ -66,8 +71,65 @@ class ConverterClient(
         parseJob(request("/api/convert", "POST", body.toString()))
     }
 
+    suspend fun startUploadedConversion(
+        source: LocalAudioSource,
+        format: AudioFormat,
+        onUploadProgress: (Int) -> Unit = {}
+    ): ConversionJob = withContext(Dispatchers.IO) {
+        val encodedTitle = URLEncoder.encode(source.title, StandardCharsets.UTF_8.name())
+        val formatName = format.name.lowercase(Locale.US)
+        val connection = URL("$baseUrl/api/transcode?format=$formatName&title=$encodedTitle")
+            .openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 90_000
+            connection.readTimeout = 90_000
+            connection.doOutput = true
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Content-Type", "application/octet-stream")
+            apiKey?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            val total = source.file.length()
+            require(total > 0) { "Local audio source is empty." }
+            connection.setFixedLengthStreamingMode(total)
+
+            source.file.inputStream().buffered().use { input ->
+                connection.outputStream.buffered().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var sent = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        sent += read
+                        onUploadProgress(((sent * 100L) / total).toInt().coerceIn(1, 100))
+                    }
+                }
+            }
+
+            parseJob(readResponse(connection))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     suspend fun getJob(id: String): ConversionJob = withContext(Dispatchers.IO) {
         parseJob(request("/api/jobs/$id", "GET", null))
+    }
+
+    private suspend fun waitForJob(
+        initial: ConversionJob,
+        pollMs: Long,
+        onUpdate: (ConversionJob) -> Unit
+    ): ConversionJob {
+        var job = initial
+        onUpdate(job)
+        while (job.status != "ready" && job.status != "error") {
+            delay(pollMs)
+            job = getJob(job.id)
+            onUpdate(job)
+        }
+        if (job.status == "error") throw IOException(job.error ?: "Conversion failed")
+        return job
     }
 
     suspend fun convertAndWait(
@@ -78,15 +140,39 @@ class ConverterClient(
         onUpdate: (ConversionJob) -> Unit = {}
     ): ConversionJob {
         warmUp()
-        var job = startConversion(url, format, auth)
-        onUpdate(job)
-        while (job.status != "ready" && job.status != "error") {
-            delay(pollMs)
-            job = getJob(job.id)
-            onUpdate(job)
+        return waitForJob(startConversion(url, format, auth), pollMs, onUpdate)
+    }
+
+    suspend fun convertSmart(
+        context: Context,
+        url: String,
+        format: AudioFormat,
+        pollMs: Long = 1000,
+        auth: SessionAuth? = null,
+        onUpdate: (ConversionJob) -> Unit = {}
+    ): ConversionJob {
+        if (auth == null && YouTubeLocalExtractor.isYouTubeUrl(url)) {
+            var source: LocalAudioSource? = null
+            try {
+                coroutineScope {
+                    val warming = async { warmUp() }
+                    onUpdate(localJob(format, "resolving locally", 1, null))
+                    source = YouTubeLocalExtractor.downloadBestAudio(context, url) { localProgress ->
+                        onUpdate(localJob(format, "downloading locally", localProgress, null))
+                    }
+                    warming.await()
+                }
+                val local = requireNotNull(source)
+                val uploaded = startUploadedConversion(local, format) { uploadProgress ->
+                    onUpdate(localJob(format, "uploading to converter", uploadProgress, local.title))
+                }
+                return waitForJob(uploaded, pollMs, onUpdate)
+            } finally {
+                source?.file?.delete()
+            }
         }
-        if (job.status == "error") throw IOException(job.error ?: "Conversion failed")
-        return job
+
+        return convertAndWait(url, format, pollMs, auth, onUpdate)
     }
 
     fun absoluteDownloadUrl(job: ConversionJob): String {
@@ -105,6 +191,21 @@ class ConverterClient(
         return (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
     }
 
+    private fun localJob(
+        format: AudioFormat,
+        status: String,
+        progress: Int,
+        title: String?
+    ) = ConversionJob(
+        id = "local-youtube",
+        format = format.name.lowercase(Locale.US),
+        status = status,
+        progress = progress.coerceIn(0, 100),
+        error = null,
+        title = title,
+        downloadUrl = null
+    )
+
     private fun parseJob(raw: String): ConversionJob {
         val o = JSONObject(raw)
         return ConversionJob(
@@ -116,6 +217,17 @@ class ConverterClient(
             title = o.optString("title").takeIf { it.isNotBlank() && it != "null" },
             downloadUrl = o.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }
         )
+    }
+
+    private fun readResponse(connection: HttpURLConnection): String {
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (status !in 200..299) {
+            val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
+            throw IOException(message?.takeIf { it.isNotBlank() } ?: "HTTP $status")
+        }
+        return text
     }
 
     private fun request(path: String, method: String, body: String?): String {
@@ -131,14 +243,7 @@ class ConverterClient(
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.outputStream.use { it.write(body.toByteArray()) }
             }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
-                throw IOException(message?.takeIf { it.isNotBlank() } ?: "HTTP $status")
-            }
-            return text
+            return readResponse(connection)
         } finally {
             connection.disconnect()
         }

@@ -225,7 +225,7 @@ private fun ZexlScreen(sharedUrl: String) {
                     )
                     Spacer(Modifier.height(9.dp))
                     Text(
-                        "Turn supported media into MP3, FLAC, or WAV. Your hosted Render converter handles the heavy work.",
+                        "YouTube downloads on your phone first; Render only converts the local source. Other supported links still use the hosted converter.",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -317,11 +317,14 @@ private fun ZexlScreen(sharedUrl: String) {
                             currentTitle = null
                             scope.launch {
                                 runCatching {
-                                    client.convertAndWait(url, format) { job ->
+                                    client.convertSmart(context, url, format) { job ->
                                         progress = job.progress
                                         status = when (job.status) {
+                                            "resolving locally" -> "resolving locally"
+                                            "downloading locally" -> "downloading locally"
+                                            "uploading to converter" -> "uploading to converter"
                                             "queued" -> "in queue"
-                                            "working" -> "converting"
+                                            "working", "converting" -> "converting"
                                             else -> job.status
                                         }
                                         currentTitle = job.title

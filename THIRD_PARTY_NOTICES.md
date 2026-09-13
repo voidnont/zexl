@@ -5,7 +5,7 @@ ZEXL uses the following third-party software in its hosted converter image.
 ## NewPipeExtractor
 
 - Project: TeamNewPipe/NewPipeExtractor
-- Revision: 13a655fe53e0c3065f88725fc1fb594c3ede0169
+- Revision: 8584a0d636ce6b8371d2c5c83dbe7f01a3d21d59
 - License: GNU General Public License v3.0 or later
 - Source: https://github.com/TeamNewPipe/NewPipeExtractor
 - License copy: `licenses/GPL-3.0.txt`
