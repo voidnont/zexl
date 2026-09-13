@@ -75,7 +75,7 @@ private fun ZexlScreen(sharedUrl: String) {
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busy) "$status · $progress%" else "convert") }
             Spacer(Modifier.height(18.dp))
-            Text("signed by voi", fontSize = 12.sp, color = Color(0xFF6F6F79))
+            Text("signed by void", fontSize = 12.sp, color = Color(0xFF6F6F79))
         }
     }
 }
