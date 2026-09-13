@@ -151,12 +151,12 @@ private fun ZexlScreen(sharedUrl: String) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 22.dp),
+                    .padding(horizontal = 12.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.Center
             ) {
                 GlassPanel(
                     modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 30
+                    cornerRadius = 24
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -166,25 +166,25 @@ private fun ZexlScreen(sharedUrl: String) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(29.dp)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(Color.White.copy(alpha = 0.055f))
-                                    .border(1.dp, GlassLine, RoundedCornerShape(10.dp)),
+                                    .border(1.dp, GlassLine, RoundedCornerShape(8.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(9.dp)
+                                        .size(7.dp)
                                         .clip(CircleShape)
                                         .background(Acid)
                                         .graphicsLayer { alpha = glow }
                                 )
                             }
-                            Spacer(Modifier.size(10.dp))
+                            Spacer(Modifier.size(8.dp))
                             Text(
                                 "ZEXL",
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 letterSpacing = 2.sp
                             )
@@ -192,53 +192,53 @@ private fun ZexlScreen(sharedUrl: String) {
                         Text(
                             "AUDIO CONVERTER",
                             color = Color.White.copy(alpha = 0.36f),
-                            fontSize = 9.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.2.sp
                         )
                     }
 
-                    Spacer(Modifier.height(34.dp))
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         "ONE LINK. THREE FORMATS.",
                         color = Color.White.copy(alpha = 0.38f),
-                        fontSize = 10.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.5.sp
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(7.dp))
                     Text(
                         "drop a link.",
                         color = Color.White,
-                        fontSize = 43.sp,
-                        lineHeight = 43.sp,
+                        fontSize = 31.sp,
+                        lineHeight = 31.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-1.9).sp
+                        letterSpacing = (-1.2).sp
                     )
                     Text(
                         "keep the sound.",
                         color = Color(0xFFA9ACB5),
-                        fontSize = 43.sp,
-                        lineHeight = 43.sp,
+                        fontSize = 31.sp,
+                        lineHeight = 31.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-1.9).sp
+                        letterSpacing = (-1.2).sp
                     )
-                    Spacer(Modifier.height(17.dp))
+                    Spacer(Modifier.height(9.dp))
                     Text(
                         "Turn supported media into MP3, FLAC, or WAV. Your hosted Render converter handles the heavy work.",
                         color = Muted,
-                        fontSize = 14.sp,
-                        lineHeight = 21.sp
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
                     )
 
-                    Spacer(Modifier.height(28.dp))
+                    Spacer(Modifier.height(18.dp))
                     GlassInput(
                         value = url,
                         onValueChange = { url = it },
                         enabled = !busy
                     )
 
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(14.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,16 +247,16 @@ private fun ZexlScreen(sharedUrl: String) {
                         Text(
                             "OUTPUT FORMAT",
                             color = Color.White.copy(alpha = 0.43f),
-                            fontSize = 10.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.2.sp
                         )
                         Text("CHOOSE ONE", color = Color.White.copy(alpha = 0.24f), fontSize = 9.sp)
                     }
-                    Spacer(Modifier.height(9.dp))
+                    Spacer(Modifier.height(7.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AudioFormat.entries.forEach { option ->
                             FormatGlassOption(
@@ -268,11 +268,11 @@ private fun ZexlScreen(sharedUrl: String) {
                         }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(9.dp))
                     GlassPanel(
                         modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 18,
-                        innerPadding = 14
+                        cornerRadius = 14,
+                        innerPadding = 11
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -283,24 +283,24 @@ private fun ZexlScreen(sharedUrl: String) {
                                 Text(
                                     "AUTHENTICATED SOURCES",
                                     color = Color.White.copy(alpha = 0.62f),
-                                    fontSize = 10.sp,
+                                    fontSize = 8.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = .9.sp
                                 )
-                                Spacer(Modifier.height(3.dp))
+                                Spacer(Modifier.height(2.dp))
                                 Text(
                                     "Host apps can pass SessionAuth for allowed non-DRM media.",
                                     color = Color.White.copy(alpha = 0.34f),
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp
                                 )
                             }
-                            Text("OPTIONAL", color = Acid.copy(alpha = 0.58f), fontSize = 9.sp)
+                            Text("OPTIONAL", color = Acid.copy(alpha = 0.58f), fontSize = 8.sp)
                         }
                     }
 
                     if (busy || status != "ready") {
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(9.dp))
                         ConversionStatus(
                             status = status,
                             progress = progress,
@@ -308,7 +308,7 @@ private fun ZexlScreen(sharedUrl: String) {
                         )
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(9.dp))
                     Button(
                         onClick = {
                             busy = true
@@ -339,7 +339,7 @@ private fun ZexlScreen(sharedUrl: String) {
                             }
                         },
                         enabled = !busy && url.isNotBlank(),
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Acid,
                             contentColor = Color(0xFF111409),
@@ -348,31 +348,31 @@ private fun ZexlScreen(sharedUrl: String) {
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
+                            .height(48.dp)
                     ) {
                         Text(
                             if (busy) "$status · $progress%" else "convert audio  →",
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
+                            fontSize = 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Spacer(Modifier.height(22.dp))
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         "Use only media you have permission to download. DRM and access-control bypasses are not supported.",
                         color = Color.White.copy(alpha = 0.27f),
-                        fontSize = 10.sp,
+                        fontSize = 8.sp,
                         lineHeight = 15.sp
                     )
-                    Spacer(Modifier.height(11.dp))
+                    Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(width = 18.dp, height = 1.dp).background(Acid.copy(alpha = .55f)))
                         Spacer(Modifier.size(7.dp))
                         Text(
                             "signed by void",
-                            fontSize = 10.sp,
+                            fontSize = 8.sp,
                             color = Color.White.copy(alpha = 0.43f),
                             letterSpacing = 1.sp
                         )
@@ -396,8 +396,8 @@ private fun AmbientGlow(modifier: Modifier, color: Color) {
 @Composable
 private fun GlassPanel(
     modifier: Modifier = Modifier,
-    cornerRadius: Int = 24,
-    innerPadding: Int = 22,
+    cornerRadius: Int = 20,
+    innerPadding: Int = 18,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(cornerRadius.dp)
@@ -425,7 +425,7 @@ private fun GlassInput(
     onValueChange: (String) -> Unit,
     enabled: Boolean
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(16.dp)
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -469,7 +469,7 @@ private fun FormatGlassOption(
         animationSpec = spring(dampingRatio = 0.62f, stiffness = 440f),
         label = "formatSelection"
     )
-    val shape = RoundedCornerShape(17.dp)
+    val shape = RoundedCornerShape(14.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val detail = when (option) {
         AudioFormat.MP3 -> "compact"
@@ -500,19 +500,19 @@ private fun FormatGlassOption(
                 shape
             )
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 14.dp)
+            .padding(horizontal = 10.dp, vertical = 11.dp)
     ) {
         Text(
             option.name,
             color = if (selected) Color(0xFFF7FFE0) else Color.White.copy(alpha = .78f),
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 13.sp
+            fontSize = 12.sp
         )
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             detail,
             color = if (selected) Color(0xFFBAC98E) else Color.White.copy(alpha = .32f),
-            fontSize = 9.sp
+            fontSize = 8.sp
         )
     }
 }
@@ -521,8 +521,8 @@ private fun FormatGlassOption(
 private fun ConversionStatus(status: String, progress: Int, title: String?) {
     GlassPanel(
         modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 18,
-        innerPadding = 15
+        cornerRadius = 14,
+        innerPadding = 12
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -533,7 +533,7 @@ private fun ConversionStatus(status: String, progress: Int, title: String?) {
                 Text(
                     "CONVERSION",
                     color = Color.White.copy(alpha = .28f),
-                    fontSize = 9.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
@@ -549,17 +549,17 @@ private fun ConversionStatus(status: String, progress: Int, title: String?) {
             }
             Text("$progress%", color = Acid.copy(alpha = .72f), fontSize = 11.sp)
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = { progress.coerceIn(0, 100) / 100f },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(5.dp)
+                .height(4.dp)
                 .clip(CircleShape),
             color = Acid,
             trackColor = Color.White.copy(alpha = .06f)
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(status, color = Color.White.copy(alpha = .38f), fontSize = 10.sp)
     }
 }
