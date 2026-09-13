@@ -15,6 +15,7 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
     const hasCookies = fs.existsSync(cookiePath);
 
     const args = [
+        '-f', 'bestaudio/best',
         '-x',
         '--audio-format', cleanFormat,
         '--audio-quality', quality === '320k' ? '0' : '5',
