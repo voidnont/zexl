@@ -20,6 +20,7 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
     ];
 
     const ytdlp = spawn('yt-dlp', args);
+    let stderrData = '';
 
     ytdlp.stdout.on('data', (data) => {
         const text = data.toString();
@@ -27,6 +28,10 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
             job.progress = 50;
             job.message = 'Converting media stream...';
         }
+    });
+
+    ytdlp.stderr.on('data', (data) => {
+        stderrData += data.toString();
     });
 
     ytdlp.on('close', (code) => {
@@ -46,7 +51,10 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
             }
         } else {
             job.status = 'failed';
-            job.error = `Conversion failed with exit code ${code}`;
+            // Extract the last meaningful line of stderr or show a snippet
+            const cleanErr = stderrData.trim().split('\n').pop() || `Exit code ${code}`;
+            job.error = cleanErr;
+            console.error(`yt-dlp error for job ${jobId}:`, stderrData);
         }
     });
 }
