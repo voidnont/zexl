@@ -18,6 +18,11 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 const jobs = new Map();
 
+// Root route so the browser doesn't show "Cannot GET /"
+app.get('/', (req, res) => {
+    res.json({ name: 'Zexl Media Converter API', status: 'online', activeJobs: jobs.size });
+});
+
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', activeJobs: jobs.size });
 });
