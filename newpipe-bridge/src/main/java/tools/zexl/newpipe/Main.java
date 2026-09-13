@@ -8,7 +8,6 @@ import org.schabi.newpipe.extractor.downloader.Response;
 import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 
-import javax.annotation.Nonnull;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -115,7 +114,7 @@ public final class Main {
                 .build();
 
         @Override
-        public Response execute(@Nonnull final Request request) throws IOException {
+        public Response execute(final Request request) throws IOException {
             try {
                 final HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(request.url()))
                         .timeout(Duration.ofSeconds(40));

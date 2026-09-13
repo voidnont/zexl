@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
+test('NewPipe bridge does not require legacy javax.annotation at compile time', async () => {
+  const bridge = await fs.readFile(new URL('../newpipe-bridge/src/main/java/tools/zexl/newpipe/Main.java', import.meta.url), 'utf8');
+  assert.doesNotMatch(bridge, /javax\.annotation/);
+  assert.doesNotMatch(bridge, /@Nonnull/);
+});
+
 test('pins current stable runtime and extractor dependencies', async () => {
   const docker = await fs.readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
   const gradle = await fs.readFile(new URL('../newpipe-bridge/build.gradle.kts', import.meta.url), 'utf8');
