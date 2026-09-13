@@ -8,6 +8,7 @@ import path from 'node:path';
 test('builds mp3 conversion args with best audio quality', () => {
   const args = buildYtDlpArgs('https://example.com/media', 'mp3', '/tmp/job');
   assert.ok(args.includes('--extract-audio'));
+  assert.deepEqual(args.slice(args.indexOf('--js-runtimes'), args.indexOf('--js-runtimes') + 2), ['--js-runtimes', 'node']);
   assert.deepEqual(args.slice(args.indexOf('--audio-format'), args.indexOf('--audio-format') + 2), ['--audio-format', 'mp3']);
   assert.deepEqual(args.slice(args.indexOf('--audio-quality'), args.indexOf('--audio-quality') + 2), ['--audio-quality', '0']);
   assert.equal(args.at(-1), 'https://example.com/media');

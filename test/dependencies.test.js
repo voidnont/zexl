@@ -8,13 +8,25 @@ test('NewPipe bridge does not require legacy javax.annotation at compile time', 
   assert.doesNotMatch(bridge, /@Nonnull/);
 });
 
+
+
+test('NewPipe bridge mirrors upstream Brotli-capable HTTP transport for YouTube', async () => {
+  const bridge = await fs.readFile(new URL('../newpipe-bridge/src/main/java/tools/zexl/newpipe/Main.java', import.meta.url), 'utf8');
+  assert.match(bridge, /CompressionInterceptor/);
+  assert.match(bridge, /brotli\.Brotli\.INSTANCE/);
+  assert.match(bridge, /Gzip\.INSTANCE/);
+  assert.match(bridge, /Firefox\/140\.0/);
+});
 test('pins current stable runtime and extractor dependencies', async () => {
   const docker = await fs.readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
   const gradle = await fs.readFile(new URL('../newpipe-bridge/build.gradle.kts', import.meta.url), 'utf8');
   assert.match(docker, /node:24\.21\.0-trixie-slim/);
   assert.match(docker, /gradle:9\.7\.1-jdk21/);
   assert.match(docker, /YTDLP_VERSION=2026\.08\.19/);
-  assert.match(gradle, /NewPipeExtractor:v0\.26\.5/);
+  assert.match(docker, /yt-dlp\[default\]==\$\{YTDLP_VERSION\}/);
+  assert.match(gradle, /NewPipeExtractor:13a655fe53e0c3065f88725fc1fb594c3ede0169/);
+  assert.match(gradle, /com\.squareup\.okhttp3:okhttp:5\.5\.0/);
+  assert.match(gradle, /com\.squareup\.okhttp3:okhttp-brotli:5\.5\.0/);
 });
 
 test('includes automated dependency update checks', async () => {

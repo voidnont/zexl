@@ -43,6 +43,7 @@ test('builds ffmpeg args for a resolved NewPipe stream', () => {
     format: 'mp3'
   });
   assert.ok(args.includes('-vn'));
+  assert.deepEqual(args.slice(args.indexOf('-user_agent'), args.indexOf('-user_agent') + 2), ['-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0']);
   assert.deepEqual(args.slice(args.indexOf('-i'), args.indexOf('-i') + 2), ['-i', 'https://cdn.example/audio.webm']);
   assert.deepEqual(args.slice(args.indexOf('-codec:a'), args.indexOf('-codec:a') + 2), ['-codec:a', 'libmp3lame']);
   assert.equal(args.at(-1), '/tmp/out.mp3');

@@ -10,7 +10,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv ca-certificates openjdk-21-jre-headless \
  && python3 -m venv /opt/yt \
  && /opt/yt/bin/pip install --no-cache-dir --upgrade pip \
- && /opt/yt/bin/pip install --no-cache-dir "yt-dlp==${YTDLP_VERSION}" \
+ && /opt/yt/bin/pip install --no-cache-dir "yt-dlp[default]==${YTDLP_VERSION}" \
  && ln -s /opt/yt/bin/yt-dlp /usr/local/bin/yt-dlp \
  && rm -rf /var/lib/apt/lists/*
 

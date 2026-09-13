@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 
+export const NEWPIPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+
 function runProcess(command, args, { maxStdout = 128 * 1024, maxStderr = 16 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -42,6 +44,8 @@ export async function resolveWithNewPipe(url, {
 export function buildFfmpegArgs({ streamUrl, outputPath, format }) {
   const args = [
     '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+    '-user_agent', NEWPIPE_USER_AGENT,
+    '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
     '-i', streamUrl,
     '-vn'
   ];

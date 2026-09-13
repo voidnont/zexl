@@ -5,7 +5,7 @@ import { buildFfmpegArgs, resolveWithNewPipe } from './newpipe.js';
 
 export function buildYtDlpArgs(url, format, outputDir, { cookiesPath = null, userAgent = null } = {}) {
   const args = [
-    '--no-playlist', '--no-warnings', '--newline', '--extract-audio',
+    '--no-playlist', '--no-warnings', '--newline', '--js-runtimes', 'node', '--extract-audio',
     '--audio-format', format,
     '--progress-template', 'download:PROGRESS\t%(progress._percent_str)s',
     '--print', 'after_move:FILE\t%(filepath)s',
