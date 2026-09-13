@@ -15,6 +15,7 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
         '-x',
         '--audio-format', cleanFormat,
         '--audio-quality', quality === '320k' ? '0' : '5',
+        '--extractor-args', 'youtube:player_client=android',
         '-o', path.join(outputDir, `${jobId}.%(ext)s`),
         url
     ];
@@ -51,7 +52,6 @@ export function processConversion(job, jobId, url, format, quality, outputDir) {
             }
         } else {
             job.status = 'failed';
-            // Extract the last meaningful line of stderr or show a snippet
             const cleanErr = stderrData.trim().split('\n').pop() || `Exit code ${code}`;
             job.error = cleanErr;
             console.error(`yt-dlp error for job ${jobId}:`, stderrData);
