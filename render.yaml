@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: zexl-audio
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: JOB_TTL_MS
+        value: 900000
+      - key: MAX_CONCURRENT_JOBS
+        value: 1

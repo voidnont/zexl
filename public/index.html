@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0d">
+  <title>ZEXL</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="card" aria-labelledby="title">
+      <div class="brand"><span class="dot"></span> ZEXL</div>
+      <h1 id="title">drop a link.<br><span>get audio.</span></h1>
+      <p class="sub">Convert supported public media links to MP3, FLAC, or WAV.</p>
+
+      <form id="convert-form">
+        <label class="urlbox">
+          <span>media link</span>
+          <input id="url" type="url" inputmode="url" autocomplete="url" placeholder="https://…" required>
+        </label>
+
+        <div class="formats" role="radiogroup" aria-label="Audio format">
+          <label><input type="radio" name="format" value="mp3" checked><span>MP3</span></label>
+          <label><input type="radio" name="format" value="flac"><span>FLAC</span></label>
+          <label><input type="radio" name="format" value="wav"><span>WAV</span></label>
+        </div>
+
+        <button id="convert" type="submit">convert</button>
+      </form>
+
+      <section id="status" class="status" hidden aria-live="polite">
+        <div class="status-row"><strong id="status-title">starting…</strong><span id="percent">0%</span></div>
+        <div class="track"><div id="bar"></div></div>
+        <p id="status-message">Waking converter and preparing your job.</p>
+        <a id="download" class="download" hidden>download audio</a>
+      </section>
+
+      <p class="fine">Use only media you have permission to download. DRM/login-protected sources are not bypassed.</p>
+      <p class="signature">signed by voi</p>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
