@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAppServer } from '../src/server.js';
+import { ExtractorError } from '../src/extractor-errors.js';
 
 async function withServer(fn) {
   const server = createAppServer({
@@ -87,7 +88,6 @@ test('passes validated session auth to the converter without exposing it in job 
   }
 });
 
-
 test('raw transcode upload creates a normal ready job', async () => {
   let capturedSource = '';
   const server = createAppServer({
@@ -161,6 +161,40 @@ test('raw transcode upload rejects bodies above the configured limit', async () 
     });
     assert.equal(res.status, 413);
     assert.match((await res.json()).error, /large/i);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('conversion errors expose normalized challenge metadata without credentials', async () => {
+  const server = createAppServer({
+    validateUrl: async url => url,
+    convert: async () => {
+      throw new ExtractorError(
+        'captcha_required',
+        'Complete the CAPTCHA on the source site.',
+        'https://example.com/watch'
+      );
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const base = `http://127.0.0.1:${port}`;
+    const res = await fetch(`${base}/api/convert`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/watch', format: 'mp3' })
+    });
+    const created = await res.json();
+    let job = created;
+    for (let i = 0; i < 50 && job.status !== 'error'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      job = await (await fetch(`${base}/api/jobs/${created.id}`)).json();
+    }
+    assert.equal(job.errorCode, 'captcha_required');
+    assert.equal(job.sourceUrl, 'https://example.com/watch');
+    assert.equal(JSON.stringify(job).includes('cookies'), false);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
