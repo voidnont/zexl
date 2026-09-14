@@ -15,5 +15,5 @@ test('Android client exposes optional SessionAuth for authenticated conversions'
   const kotlin = await fs.readFile(new URL('../android-sample/app/src/main/java/tools/zexl/client/ConverterClient.kt', import.meta.url), 'utf8');
   assert.match(kotlin, /data class SessionAuth/);
   assert.match(kotlin, /auth: SessionAuth\? = null/);
-  assert.match(kotlin, /put\("auth"/);
+  assert.match(kotlin, /body\.put\(\s*"auth"/s);
 });

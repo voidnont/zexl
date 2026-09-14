@@ -1,6 +1,7 @@
 package tools.zexl.demo
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import tools.zexl.client.AudioFormat
+import tools.zexl.client.ConversionFailedException
 import tools.zexl.client.ConverterClient
 
 private val Ink = Color(0xFF07080A)
@@ -91,8 +93,13 @@ private fun ZexlScreen(sharedUrl: String) {
     var status by remember { mutableStateOf("ready") }
     var currentTitle by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var challengeUrl by remember { mutableStateOf<String?>(null) }
+    var challengeCode by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val canOpenSource = challengeUrl != null && challengeCode in setOf(
+        "login_required", "captcha_required", "consent_required", "age_check"
+    )
 
     val infinite = rememberInfiniteTransition(label = "ambient")
     val drift by infinite.animateFloat(
@@ -224,7 +231,7 @@ private fun ZexlScreen(sharedUrl: String) {
                     )
                     Spacer(Modifier.height(9.dp))
                     Text(
-                        "YouTube downloads on your phone first; Render only converts the local source. Other supported links still use the hosted converter.",
+                        "YouTube uses ZEXL's hosted InnerTube-first pipeline; other supported links use the same hosted converter.",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -307,6 +314,27 @@ private fun ZexlScreen(sharedUrl: String) {
                         )
                     }
 
+                    if (canOpenSource) {
+                        Spacer(Modifier.height(9.dp))
+                        Button(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(requireNotNull(challengeUrl)))
+                                )
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White.copy(alpha = .10f),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Text("Open source", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+
                     Spacer(Modifier.height(9.dp))
                     Button(
                         onClick = {
@@ -314,14 +342,13 @@ private fun ZexlScreen(sharedUrl: String) {
                             progress = 0
                             status = "waking converter"
                             currentTitle = null
+                            challengeUrl = null
+                            challengeCode = null
                             scope.launch {
                                 runCatching {
                                     client.convertSmart(context, url, format) { job ->
                                         progress = job.progress
                                         status = when (job.status) {
-                                            "resolving locally" -> "resolving locally"
-                                            "downloading locally" -> "downloading locally"
-                                            "uploading to converter" -> "uploading to converter"
                                             "queued" -> "in queue"
                                             "working", "converting" -> "converting"
                                             else -> job.status
@@ -329,13 +356,22 @@ private fun ZexlScreen(sharedUrl: String) {
                                         currentTitle = job.title
                                     }
                                 }.onSuccess { job ->
+                                    challengeUrl = null
+                                    challengeCode = null
                                     currentTitle = job.title
                                     progress = 100
                                     client.enqueueDownload(context, job)
                                     status = "download started"
-                                }.onFailure {
+                                }.onFailure { error ->
                                     progress = 0
-                                    status = it.message ?: "conversion failed"
+                                    if (error is ConversionFailedException) {
+                                        challengeUrl = error.job.sourceUrl
+                                        challengeCode = error.job.errorCode
+                                    } else {
+                                        challengeUrl = null
+                                        challengeCode = null
+                                    }
+                                    status = error.message ?: "conversion failed"
                                 }
                                 busy = false
                             }
@@ -353,7 +389,7 @@ private fun ZexlScreen(sharedUrl: String) {
                             .height(48.dp)
                     ) {
                         Text(
-                            if (busy) "$status · $progress%" else "convert audio  →",
+                            if (busy) "$status · $progress%" else if (challengeCode != null) "retry conversion  →" else "convert audio  →",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp,
                             maxLines = 1,

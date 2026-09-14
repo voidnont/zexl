@@ -20,3 +20,18 @@ test('expires old jobs', async () => {
   await new Promise(r => setTimeout(r, 10));
   assert.equal(store.get(job.id), null);
 });
+
+test('public error jobs expose normalized challenge metadata only', () => {
+  const store = new JobStore();
+  const job = store.create({ url: 'https://example.com/watch', format: 'mp3' });
+  store.update(job.id, {
+    status: 'error',
+    error: 'Complete the CAPTCHA.',
+    errorCode: 'captcha_required',
+    sourceUrl: 'https://example.com/watch'
+  });
+  const value = store.public(job.id);
+  assert.equal(value.errorCode, 'captcha_required');
+  assert.equal(value.sourceUrl, 'https://example.com/watch');
+  assert.equal('filePath' in value, false);
+});

@@ -11,6 +11,7 @@ export class JobStore {
     const job = {
       id: crypto.randomUUID(), url, format,
       status: 'queued', progress: 0, error: null,
+      errorCode: null, sourceUrl: null,
       filePath: null, title: null,
       createdAt: now, updatedAt: now
     };
@@ -46,6 +47,8 @@ export class JobStore {
       status: job.status,
       progress: job.progress,
       error: job.error,
+      errorCode: job.errorCode,
+      sourceUrl: job.sourceUrl,
       title: job.title,
       downloadUrl: job.status === 'ready' ? `/api/jobs/${job.id}/file` : null,
       createdAt: new Date(job.createdAt).toISOString(),

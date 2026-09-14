@@ -5,8 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -20,10 +18,8 @@ import java.util.Locale
 
 enum class AudioFormat { MP3, FLAC, WAV }
 
-data class SessionAuth(
-    val cookies: String,
-    val userAgent: String? = null
-)
+data class SessionAuth(val cookies: String, val userAgent: String? = null)
+data class LocalAudioSource(val file: File, val title: String)
 
 data class ConversionJob(
     val id: String,
@@ -31,9 +27,13 @@ data class ConversionJob(
     val status: String,
     val progress: Int,
     val error: String?,
+    val errorCode: String?,
+    val sourceUrl: String?,
     val title: String?,
     val downloadUrl: String?
 )
+
+class ConversionFailedException(val job: ConversionJob) : IOException(job.error ?: "Conversion failed")
 
 class ConverterClient(
     baseUrl: String,
@@ -64,9 +64,12 @@ class ConverterClient(
             .put("url", url)
             .put("format", format.name.lowercase(Locale.US))
         auth?.let { session ->
-            body.put("auth", JSONObject()
-                .put("cookies", session.cookies)
-                .put("userAgent", session.userAgent))
+            body.put(
+                "auth",
+                JSONObject()
+                    .put("cookies", session.cookies)
+                    .put("userAgent", session.userAgent)
+            )
         }
         parseJob(request("/api/convert", "POST", body.toString()))
     }
@@ -128,7 +131,7 @@ class ConverterClient(
             job = getJob(job.id)
             onUpdate(job)
         }
-        if (job.status == "error") throw IOException(job.error ?: "Conversion failed")
+        if (job.status == "error") throw ConversionFailedException(job)
         return job
     }
 
@@ -151,27 +154,7 @@ class ConverterClient(
         auth: SessionAuth? = null,
         onUpdate: (ConversionJob) -> Unit = {}
     ): ConversionJob {
-        if (auth == null && YouTubeLocalExtractor.isYouTubeUrl(url)) {
-            var source: LocalAudioSource? = null
-            try {
-                coroutineScope {
-                    val warming = async { warmUp() }
-                    onUpdate(localJob(format, "resolving locally", 1, null))
-                    source = YouTubeLocalExtractor.downloadBestAudio(context, url) { localProgress ->
-                        onUpdate(localJob(format, "downloading locally", localProgress, null))
-                    }
-                    warming.await()
-                }
-                val local = requireNotNull(source)
-                val uploaded = startUploadedConversion(local, format) { uploadProgress ->
-                    onUpdate(localJob(format, "uploading to converter", uploadProgress, local.title))
-                }
-                return waitForJob(uploaded, pollMs, onUpdate)
-            } finally {
-                source?.file?.delete()
-            }
-        }
-
+        context.applicationContext
         return convertAndWait(url, format, pollMs, auth, onUpdate)
     }
 
@@ -191,21 +174,6 @@ class ConverterClient(
         return (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
     }
 
-    private fun localJob(
-        format: AudioFormat,
-        status: String,
-        progress: Int,
-        title: String?
-    ) = ConversionJob(
-        id = "local-youtube",
-        format = format.name.lowercase(Locale.US),
-        status = status,
-        progress = progress.coerceIn(0, 100),
-        error = null,
-        title = title,
-        downloadUrl = null
-    )
-
     private fun parseJob(raw: String): ConversionJob {
         val o = JSONObject(raw)
         return ConversionJob(
@@ -214,6 +182,8 @@ class ConverterClient(
             status = o.getString("status"),
             progress = o.optInt("progress", 0),
             error = o.optString("error").takeIf { it.isNotBlank() && it != "null" },
+            errorCode = o.optString("errorCode").takeIf { it.isNotBlank() && it != "null" },
+            sourceUrl = o.optString("sourceUrl").takeIf { it.isNotBlank() && it != "null" },
             title = o.optString("title").takeIf { it.isNotBlank() && it != "null" },
             downloadUrl = o.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }
         )
