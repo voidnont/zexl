@@ -6,6 +6,7 @@ import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { validateFormat, validateMediaUrl, validateSessionAuth } from './validation.js';
 import { convertAudio, safeDownloadName, transcodeUploadedAudio } from './converter.js';
+import { ExtractorError } from './extractor-errors.js';
 import { JobStore } from './jobs.js';
 import { TaskQueue } from './queue.js';
 
@@ -58,7 +59,6 @@ async function readJson(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
   catch { throw new Error('Invalid JSON body.'); }
 }
-
 
 async function streamRequestToFile(req, filePath, maxBytes) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
@@ -214,9 +214,12 @@ export function createAppServer({
               const title = path.basename(filePath, ext).replace(/\s+\[[^\]]+\]$/, '');
               jobs.update(job.id, { status: 'ready', progress: 100, filePath, title });
             } catch (error) {
+              const normalized = error instanceof ExtractorError ? error : null;
               jobs.update(job.id, {
                 status: 'error',
-                error: String(error?.message || error).slice(0, 1200)
+                error: String(error?.message || error).slice(0, 1200),
+                errorCode: normalized?.code || 'extractor_error',
+                sourceUrl: normalized?.sourceUrl || url
               });
             } finally {
               auth = null;
