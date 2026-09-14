@@ -1,4 +1,4 @@
-FROM node:24.21.0-trixie-slim
+FROM node:26.8-trixie-slim
 ARG YTDLP_VERSION=2026.08.19
 
 RUN apt-get update \
