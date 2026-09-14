@@ -2,16 +2,6 @@
 
 ZEXL uses the following third-party software in its hosted converter image.
 
-## NewPipeExtractor
-
-- Project: TeamNewPipe/NewPipeExtractor
-- Revision: 8584a0d636ce6b8371d2c5c83dbe7f01a3d21d59
-- License: GNU General Public License v3.0 or later
-- Source: https://github.com/TeamNewPipe/NewPipeExtractor
-- License copy: `licenses/GPL-3.0.txt`
-
-NewPipeExtractor is built as a JVM dependency of the `newpipe-bridge` component. If you redistribute a build that includes it, review and comply with the GPL terms that apply to your distribution.
-
 ## yt-dlp
 
 - Project: yt-dlp/yt-dlp
