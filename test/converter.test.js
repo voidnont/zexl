@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildYtDlpArgs, convertAudio, parseProgressLine, safeDownloadName, transcodeUploadedAudio } from '../src/converter.js';
+import { ExtractorError } from '../src/extractor-errors.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,7 +44,6 @@ test('adds cookie file and user agent without placing cookie values in command a
   assert.equal(args.some(value => value.includes('secret-cookie')), false);
 });
 
-
 test('stores session cookies as mode 0600 only during conversion', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-cookie-test-'));
   const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
@@ -84,14 +84,13 @@ console.log('FILE\\t' + output);
   }
 });
 
-test('uses NewPipe-resolved audio before yt-dlp for public links', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-newpipe-convert-'));
+test('uses InnerTube direct audio before yt-dlp for public YouTube links', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-innertube-convert-'));
   const ffmpeg = path.join(root, 'fake-ffmpeg.mjs');
   const jobDir = path.join(root, 'job');
   await fs.writeFile(ffmpeg, `#!/usr/bin/env node
 import fs from 'node:fs';
-const args = process.argv.slice(2);
-const output = args.at(-1);
+const output = process.argv.slice(2).at(-1);
 fs.writeFileSync(output, 'audio');
 console.log('out_time_ms=5000000');
 console.log('progress=end');
@@ -100,31 +99,31 @@ console.log('progress=end');
   let calls = 0;
   try {
     const output = await convertAudio({
-      url: 'https://youtube.com/watch?v=test',
+      url: 'https://youtube.com/watch?v=abcdefghijk',
       format: 'mp3',
       jobDir,
       ytDlpPath: path.join(root, 'missing-yt-dlp'),
       ffmpegPath: ffmpeg,
-      resolveNewPipe: async () => {
+      resolveInnerTube: async () => {
         calls += 1;
         return {
-          title: 'NewPipe Song',
+          title: 'InnerTube Song',
           streamUrl: 'https://cdn.example/audio.webm',
           duration: 10,
           bitrate: 160000,
-          format: 'WEBMA_OPUS'
+          mimeType: 'audio/webm'
         };
       }
     });
     assert.equal(calls, 1);
-    assert.equal(path.basename(output), 'NewPipe Song.mp3');
+    assert.equal(path.basename(output), 'InnerTube Song.mp3');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('falls back to yt-dlp when NewPipe cannot resolve the link', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-newpipe-fallback-'));
+test('falls back to yt-dlp when InnerTube cannot resolve the link', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-innertube-fallback-'));
   const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
   const jobDir = path.join(root, 'job');
   await fs.writeFile(fakeYtDlp, `#!/usr/bin/env node
@@ -141,11 +140,11 @@ console.log('FILE\\t' + output);
   await fs.chmod(fakeYtDlp, 0o700);
   try {
     const output = await convertAudio({
-      url: 'https://example.com/media',
+      url: 'https://youtube.com/watch?v=abcdefghijk',
       format: 'flac',
       jobDir,
       ytDlpPath: fakeYtDlp,
-      resolveNewPipe: async () => null
+      resolveInnerTube: async () => null
     });
     assert.equal(path.basename(output), 'Fallback Song.flac');
   } finally {
@@ -153,7 +152,37 @@ console.log('FILE\\t' + output);
   }
 });
 
-test('authenticated jobs skip NewPipe and preserve yt-dlp cookie handling', async () => {
+test('non-YouTube public links skip InnerTube', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-nonyoutube-'));
+  const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
+  const jobDir = path.join(root, 'job');
+  await fs.writeFile(fakeYtDlp, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+const valueAfter = key => args[args.indexOf(key) + 1];
+const output = path.join(path.dirname(valueAfter('-o')), 'Other Site.wav');
+fs.writeFileSync(output, 'audio');
+console.log('FILE\\t' + output);
+`);
+  await fs.chmod(fakeYtDlp, 0o700);
+  let resolverCalled = false;
+  try {
+    const output = await convertAudio({
+      url: 'https://example.com/media',
+      format: 'wav',
+      jobDir,
+      ytDlpPath: fakeYtDlp,
+      resolveInnerTube: async () => { resolverCalled = true; return null; }
+    });
+    assert.equal(resolverCalled, false);
+    assert.equal(path.basename(output), 'Other Site.wav');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('authenticated jobs skip InnerTube and preserve yt-dlp cookie handling', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-auth-fallback-'));
   const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
   const jobDir = path.join(root, 'job');
@@ -177,7 +206,7 @@ console.log('FILE\\t' + output);
       format: 'wav',
       jobDir,
       ytDlpPath: fakeYtDlp,
-      resolveNewPipe: async () => { resolverCalled = true; return null; },
+      resolveInnerTube: async () => { resolverCalled = true; return null; },
       auth: { cookies: '# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\n' }
     });
     assert.equal(resolverCalled, false);
@@ -187,6 +216,42 @@ console.log('FILE\\t' + output);
   }
 });
 
+test('InnerTube user challenge stops fallback', async () => {
+  await assert.rejects(
+    () => convertAudio({
+      url: 'https://youtube.com/watch?v=abcdefghijk',
+      format: 'mp3',
+      jobDir: path.join(os.tmpdir(), 'zexl-challenge-' + Date.now()),
+      ytDlpPath: '/definitely/missing/yt-dlp',
+      resolveInnerTube: async () => { throw new ExtractorError('age_check', 'Sign in to confirm your age', 'https://youtube.com/watch?v=abcdefghijk'); }
+    }),
+    error => error.code === 'age_check'
+  );
+});
+
+test('yt-dlp CAPTCHA failure is normalized', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-ytdlp-captcha-'));
+  const fakeYtDlp = path.join(root, 'fake-yt-dlp.mjs');
+  await fs.writeFile(fakeYtDlp, `#!/usr/bin/env node
+console.error('Please complete the CAPTCHA to continue');
+process.exit(2);
+`);
+  await fs.chmod(fakeYtDlp, 0o700);
+  try {
+    await assert.rejects(
+      () => convertAudio({
+        url: 'https://example.com/media',
+        format: 'mp3',
+        jobDir: path.join(root, 'job'),
+        ytDlpPath: fakeYtDlp,
+        resolveInnerTube: async () => null
+      }),
+      error => error.code === 'captcha_required' && error.sourceUrl === 'https://example.com/media'
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test('transcodes an uploaded local source file with ffmpeg', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zexl-upload-transcode-'));
