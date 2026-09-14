@@ -45,3 +45,17 @@ test('web and Android layouts stay compact instead of oversized', async () => {
   assert.match(kotlin, /innerPadding:\s*Int\s*=\s*18/);
   assert.match(kotlin, /\.height\(48\.dp\)/);
 });
+
+test('web UI exposes source and retry actions only for user-solvable challenges', async () => {
+  const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const js = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(html, /id="challenge-actions"/);
+  assert.match(html, /id="open-source"/);
+  assert.match(html, /id="retry"/);
+  assert.match(js, /login_required/);
+  assert.match(js, /captcha_required/);
+  assert.match(js, /consent_required/);
+  assert.match(js, /age_check/);
+  assert.match(js, /form\.requestSubmit\(\)/);
+  assert.doesNotMatch(js, /new Set\(\[[^\]]*drm/s);
+});
