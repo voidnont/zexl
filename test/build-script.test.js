@@ -32,8 +32,7 @@ test('build.bat stays open on failure/success and writes a persistent build log'
   assert.match(bat, /ZEXL_NO_PAUSE/i);
 });
 
-
-test('build.bat installs the Android 17 compile SDK package with sdkmanager', async () => {
+test('build.bat installs the Android compile SDK package with sdkmanager', async () => {
   const bat = await text('build.bat');
   assert.match(bat, /sdkmanager\.bat/i);
   assert.match(bat, /--licenses/i);
@@ -44,8 +43,7 @@ test('build.bat installs the Android 17 compile SDK package with sdkmanager', as
   assert.match(bat, /if not exist "%ANDROID_HOME%\\platforms\\android-37\.0"[\s\S]*sdkmanager/i);
 });
 
-
-test('Android Gradle memory is sized for Compose and NewPipe compilation', async () => {
+test('Android Gradle memory is sized for Compose compilation', async () => {
   const props = await text('android-sample/gradle.properties');
   assert.match(props, /org\.gradle\.jvmargs=.*-Xmx2048m/i);
   assert.match(props, /MaxMetaspaceSize=768m/i);
