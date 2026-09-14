@@ -1,7 +1,7 @@
 # ZEXL InnerTube → yt-dlp Extractor Design
 
 Date: 2026-09-14
-Status: Approved in chat for spec writing
+Status: Approved design; awaiting written-spec review
 Scope: `voidnont/zexl` only
 
 ## Goal
@@ -12,7 +12,7 @@ Replace ZEXL's current NewPipe-first extraction path with a simpler ZEXL-native 
 2. yt-dlp second when InnerTube cannot produce a usable direct stream, and first for non-YouTube sources.
 3. FFmpeg remains the single conversion stage for MP3, FLAC, and WAV output.
 
-FRXE and `nont.me` are out of scope and must not be referenced or modified by this work.
+FRXE and `nont.me` are outside the implementation scope and must not be modified or introduced as dependencies.
 
 ## Existing System to Preserve
 
@@ -38,24 +38,19 @@ Web UI / Android client
         v
 Node.js ZEXL service
         |
-        +-- YouTube public request?
-        |       |
-        |       +-- yes --> InnerTube resolver
-        |       |             |
-        |       |             +-- usable direct audio stream --> FFmpeg
-        |       |             |
-        |       |             +-- unresolved/unusable ---------+
-        |       |
-        |       +-- no -----------------------------------------+
-        |                                                     |
-        +-----------------------------------------------------v
-                                                          yt-dlp
-                                                             |
-                                                             v
-                                                           FFmpeg
-                                                             |
-                                                             v
-                                                   temporary output file
+        +-- authenticated retry with user cookies? -- yes --> yt-dlp --> FFmpeg
+        |
+        +-- no --> YouTube public request?
+                    |
+                    +-- yes --> InnerTube resolver
+                    |             |
+                    |             +-- usable direct audio stream --> FFmpeg
+                    |             |
+                    |             +-- ordinary unresolved/unusable --> yt-dlp --> FFmpeg
+                    |             |
+                    |             +-- login/CAPTCHA/consent/age/DRM challenge --> surface to user
+                    |
+                    +-- no --> yt-dlp --> FFmpeg
 ```
 
 There is no separate extractor service and no Java/JVM sidecar. The whole runtime remains one ZEXL container.
@@ -71,17 +66,21 @@ Responsibilities:
 - make the minimum server-side InnerTube player request needed to inspect public playback data;
 - return normalized metadata and only direct, usable stream URLs;
 - prefer a direct audio stream suitable for FFmpeg input;
-- return a normalized unresolved/challenge result instead of throwing raw provider responses;
+- return normalized unresolved or challenge results instead of throwing raw provider responses;
 - never attempt signature-cipher bypass logic in ZEXL itself;
 - never consume browser cookies, usernames, passwords, or provider session tokens.
 
-If InnerTube returns only ciphered/unusable formats, unavailable media, or another unsupported result, the pipeline falls through to yt-dlp.
+Ordinary unresolved cases such as cipher-only/unusable formats or no direct stream automatically fall through to yt-dlp.
+
+Provider-action states such as login, CAPTCHA, consent, age verification, and DRM stop the current attempt and are surfaced to the user. They are not silently hidden by another extractor attempt.
 
 ## yt-dlp Stage
 
 yt-dlp remains ZEXL's broad extractor and authenticated-session path.
 
-For public YouTube links it runs only after InnerTube cannot supply a usable direct stream. For non-YouTube links it runs immediately.
+For public YouTube links it runs only after InnerTube produces an ordinary unresolved result. For non-YouTube links it runs immediately.
+
+When the user retries with their own session cookies, ZEXL skips InnerTube and sends that job directly to yt-dlp so the session never enters the InnerTube resolver.
 
 The existing three output formats remain:
 
@@ -101,9 +100,16 @@ The existing temporary Netscape `cookies.txt` upload flow may remain for media t
 
 The repository currently contains a root-level `cookies.txt`. This file must be deleted from Git without reading or using its contents.
 
-Add `cookies.txt` and common session-cookie variants to `.gitignore` so credentials are not committed again.
+Add these credential-oriented ignore rules so common local session exports are not committed again:
 
-This task does not attempt to rewrite Git history. If historical removal is desired later, that is a separate security-maintenance task.
+```gitignore
+/cookies.txt
+*.cookies.txt
+cookies-*.txt
+*.netscape-cookies.txt
+```
+
+This task does not rewrite Git history. Historical secret removal, token/session revocation, or history rewriting is a separate security-maintenance task.
 
 ## Challenge and Error Model
 
@@ -122,10 +128,13 @@ Rules:
 
 - login/CAPTCHA/consent/age checks are shown to the user instead of being silently hidden;
 - the UI provides `Open source` and `Retry` when a source URL is available;
+- challenge states stop the current extraction attempt;
+- a retry without added authentication starts the normal public pipeline again;
+- a retry with user-supplied session cookies goes directly to yt-dlp;
 - ZEXL does not automate CAPTCHA solving or login;
 - ZEXL does not bypass DRM, paywalls, or access controls;
-- DRM is displayed clearly as unsupported;
-- if yt-dlp reports a usable authenticated flow and the user supplied their own valid session cookies, ZEXL may use that session normally.
+- DRM is displayed clearly as unsupported and does not offer an authentication workaround that implies DRM can be removed;
+- if yt-dlp can normally access media using a valid session explicitly supplied by the user, ZEXL may use that authorized session.
 
 ## Job API
 
@@ -201,11 +210,11 @@ Render remains the deployment target and the existing single-service model remai
 Preserve or strengthen the existing controls:
 
 - validate media URLs and reject private/local network targets before provider calls;
+- validate provider redirects before following them into private/local network ranges;
 - do not log user cookie contents;
 - do not expose temporary filesystem paths as credentials or secrets;
 - keep converted files temporary;
 - keep per-job cleanup;
-- do not follow redirects into private/local network ranges without validation;
 - do not add CAPTCHA automation, DRM bypass, account takeover, or provider-session harvesting.
 
 ## Testing
@@ -216,17 +225,19 @@ Required coverage:
 
 1. InnerTube URL/video-ID parsing.
 2. InnerTube accepts direct audio URLs and rejects cipher-only/unusable formats.
-3. YouTube order is InnerTube first, then yt-dlp.
-4. Non-YouTube skips InnerTube and uses yt-dlp.
-5. MP3, FLAC, and WAV still use the existing conversion/output contract.
-6. Challenge classification for login, CAPTCHA, consent, age, DRM, unavailable, and generic extractor failure.
-7. User-supplied temporary cookies go only to yt-dlp and are always deleted afterward.
-8. Root `cookies.txt` is absent and ignored by Git.
-9. NewPipe files/runtime references are absent from the active extractor path and Docker image.
-10. Web UI shows challenge text, `Open source`, and `Retry` where appropriate.
-11. DRM UI is explicit and does not offer a bypass path.
-12. Existing server/job/download tests remain green.
-13. No FRXE or `nont.me` dependency is introduced.
+3. Public YouTube order is InnerTube first, then yt-dlp only for ordinary unresolved results.
+4. InnerTube login/CAPTCHA/consent/age/DRM challenges stop the attempt and are surfaced.
+5. Non-YouTube skips InnerTube and uses yt-dlp.
+6. Authenticated retries skip InnerTube and send temporary user cookies only to yt-dlp.
+7. MP3, FLAC, and WAV still use the existing conversion/output contract.
+8. Challenge classification for login, CAPTCHA, consent, age, DRM, unavailable, and generic extractor failure.
+9. User-supplied temporary cookies are always deleted afterward.
+10. Root `cookies.txt` is absent and the specified cookie-export patterns are ignored by Git.
+11. NewPipe files/runtime references are absent from the active extractor path and Docker image.
+12. Web UI shows challenge text, `Open source`, and `Retry` where appropriate.
+13. DRM UI is explicit and does not offer a bypass path.
+14. Existing server/job/download tests remain green.
+15. No FRXE or `nont.me` dependency is introduced.
 
 ## Files Expected to Change
 
@@ -266,8 +277,10 @@ This work will not:
 The change is complete when:
 
 - ZEXL uses InnerTube first for public YouTube links;
-- unresolved YouTube requests fall through to yt-dlp;
+- ordinary unresolved YouTube requests fall through to yt-dlp;
+- provider-action challenges are shown instead of hidden by fallback;
 - non-YouTube requests start with yt-dlp;
+- authenticated retries go directly to yt-dlp;
 - MP3/FLAC/WAV conversion still works through FFmpeg;
 - challenges are visible and actionable by the user without automated bypassing;
 - NewPipe/Java runtime pieces are gone;
