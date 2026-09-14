@@ -6,8 +6,12 @@ const percent = document.querySelector('#percent');
 const bar = document.querySelector('#bar');
 const message = document.querySelector('#status-message');
 const download = document.querySelector('#download');
+const challengeActions = document.querySelector('#challenge-actions');
+const openSource = document.querySelector('#open-source');
+const retry = document.querySelector('#retry');
 const glassCard = document.querySelector('#glass-card');
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ACTIONABLE = new Set(['login_required', 'captcha_required', 'consent_required', 'age_check']);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -25,12 +29,26 @@ function setBusy(busy) {
   button.dataset.state = busy ? 'busy' : 'idle';
 }
 
+function clearChallenge() {
+  challengeActions.hidden = true;
+  openSource.removeAttribute('href');
+}
+
+function setChallenge(job) {
+  const show = ACTIONABLE.has(job.errorCode) && Boolean(job.sourceUrl);
+  challengeActions.hidden = !show;
+  if (show) openSource.href = job.sourceUrl;
+  else openSource.removeAttribute('href');
+}
+
 async function jsonRequest(url, options) {
   const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
+
+retry.addEventListener('click', () => form.requestSubmit());
 
 if (glassCard && !prefersReducedMotion && matchMedia('(pointer:fine)').matches) {
   glassCard.addEventListener('pointermove', event => {
@@ -59,6 +77,7 @@ document.querySelectorAll('input[name="format"]').forEach(input => {
 form.addEventListener('submit', async event => {
   event.preventDefault();
   setBusy(true);
+  clearChallenge();
   download.hidden = true;
   download.removeAttribute('href');
   const url = document.querySelector('#url').value.trim();
@@ -97,7 +116,11 @@ form.addEventListener('submit', async event => {
       job = await jsonRequest(`/api/jobs/${job.id}`);
     }
 
-    if (job.status === 'error') throw new Error(job.error || 'Conversion failed.');
+    if (job.status === 'error') {
+      setChallenge(job);
+      throw new Error(job.error || 'Conversion failed.');
+    }
+    clearChallenge();
     setStatus(job.title || 'ready', 100, `Your ${String(format).toUpperCase()} file is ready.`, 'ready');
     download.href = job.downloadUrl;
     download.querySelector('span').textContent = `download ${String(format).toUpperCase()}`;
