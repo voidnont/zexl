@@ -106,7 +106,7 @@ ZEXL pins stable production versions instead of floating `latest` tags. This bui
 
 ## Third-party licensing
 
-NewPipeExtractor is GPL-3.0-or-later. ZEXL includes `THIRD_PARTY_NOTICES.md` and a GPL-3.0 license copy under `licenses/`. Review the upstream license obligations before redistributing builds that include the NewPipe bridge.
+NewPipeExtractor is GPL-3.0-or-later. ZEXL includes `THIRD_PARTY_NOTICES.md` and a GPL-3.0 license copy under `licenses/`.
 
 ## Notes on audio quality
 
